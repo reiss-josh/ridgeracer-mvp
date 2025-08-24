@@ -21,9 +21,9 @@ var curr_turn_angle : float = 0.0 # the current turning angle
 var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
 var max_turn_angle : float = 45.0 # the maximum turn angle, in degrees
 var max_slip_angle : float = 70.0 # the maximum angle, in degrees, of a slip
-var turn_angle_speed : float = 30.0 # the angle change per frame, in degrees, of our target angle
-var turn_center_speed : float = 20.0
-var turn_snap_speed : float = 10.0 # the angle change per frame, in degrees, of the actual car
+var turn_angle_speed : float = 90.0 # the angle change per frame, in degrees, of our target angle
+var turn_center_speed : float = 50.0
+var turn_snap_speed : float = 1.0 # the angle change per frame, in degrees, of the actual car
 var is_slipping : bool = false # whether we're slipping
 var max_angle_timer : float = 0.0 # How long we've been at the max turn angle
 var max_angle_timer_top : float = 1.0 # How many seconds at max angle before we slip
@@ -95,10 +95,11 @@ func handle_turning(delta) -> void:
 				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
 			else:
 				var sign = sign(curr_turn_angle)
+				var qsign = sign(queued_turn_angle)
 				queued_turn_angle -= sign(curr_turn_angle) * (turn_center_speed * 2) * delta
 				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
 				if(sign(curr_turn_angle) != sign): curr_turn_angle = 0.0
-				if(sign(queued_turn_angle) != sign): queued_turn_angle = 0.0
+				if(sign(queued_turn_angle) != qsign): queued_turn_angle = 0.0
 		elif(just_started_accel): # Otherwise, if we just started accelerating, we should snap curr_turn_angle to match
 			curr_turn_angle = queued_turn_angle
 			queued_turn_angle = 0
@@ -130,8 +131,9 @@ func handle_turning(delta) -> void:
 				#TODO: We should interpolate back much more slowly if we're flooring it
 	# Finally, we should interpolate our actual angle towards our curr_turn_angle
 		#TODO: rotate car
+	$CarModel.rotation.y = deg_to_rad(curr_turn_angle) + (TAU/2)
 	if(curr_rpm > 0):
-		self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle), turn_snap_speed * delta)
+		self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, turn_snap_speed * delta)
 	
 
 
