@@ -79,7 +79,7 @@ func get_input():
 	#gearing
 	if(Input.is_action_just_pressed("gear_up")): gear_change(1)
 	elif(Input.is_action_just_pressed("gear_down")): gear_change(-1)
-	curr_gear = clampf(curr_gear, 0, gear_top_speeds.size())
+	curr_gear = clamp(curr_gear, 0, gear_top_speeds.size())
 	#cycle camera
 	if(Input.is_action_just_pressed("cycle_camera")):
 		curr_camera += 1
@@ -164,17 +164,25 @@ func gear_change(gear_increment) -> void:
 	if(new_gear < 0 or new_gear > gear_top_speeds.size() - 1): return
 	#sets accel proportional to new gear's accel curve
 	#ex: 0.5 accel at top speed 50 -> 0.25 at top speed 100
-	#ex: 0.25 accel at top speed 100 -> 0.5 at top speed 50wwwwwwwwwwwwwwwwww
-	accel = accel * gear_top_speeds[curr_gear] / gear_top_speeds[new_gear]
+	#ex: 0.25 accel at top speed 100 -> 0.5 at top speed 50
+	if(gear_top_speeds[new_gear] != 0): #avoid div by 0
+		accel = accel * gear_top_speeds[curr_gear] / gear_top_speeds[new_gear]
+	else:
+		accel = accel * gear_top_speeds[curr_gear] / 0.01
 	#updates gear
 	curr_gear = new_gear
 
 
 ## Handles engine acceleration curves
 func handle_engine(delta) -> void:
+	#step 0: offset acceleration by gear -- higher gears accelerate lesswwww
+	var max_gear = gear_top_speeds.size()-1
+	var gear_ratio : float = 1.0
+	if(curr_gear > 0):
+		gear_ratio = 1.0 - float(curr_gear-1)/float(max_gear) #TODO: make this less wonky
 	#step 1: update accel based on input
 	if(accel_input > 0):
-		accel += accel_rate * accel_input * delta
+		accel += accel_rate * accel_input * gear_ratio * delta
 	elif(accel_input == 0):
 		accel -= deaccel_rate * delta
 	elif(accel_input < 0):
@@ -185,9 +193,9 @@ func handle_engine(delta) -> void:
 	#step 3: convert rpm to speed
 	var target_speed = gear_top_speeds[curr_gear]
 	if(curr_speed > target_speed):
-		var old_target_speed = gear_top_speeds[curr_gear+1]
+		#var old_target_speed = gear_top_speeds[curr_gear+1]
 		#print(curr_speed, "\t", target_speed, "\t", old_target_speed)
-		curr_speed = lerpf(curr_speed, 0, deaccel_rate * delta) #TODO: not sure about this
+		curr_speed = lerpf(curr_speed, 0, 10 * delta) #TODO: not sure about this
 	else:
 		curr_speed = curr_rpm * gear_top_speeds[curr_gear]
 

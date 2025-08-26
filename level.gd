@@ -28,7 +28,7 @@ func _process(_delta):
 	var gear = car.curr_gear
 	#var angle = -car.curr_turn_angle
 	var angle = 0
-	var qangle = -car.queued_turn_angle
+	#var qangle = -car.queued_turn_angle
 	Speedometer.value = speed
 	Tachiometer.value = rpm
 	SpeedText.text = str(snapped(speed, 0.1)) + " MPH"
