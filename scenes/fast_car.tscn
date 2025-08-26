@@ -93,11 +93,12 @@ enabled = false
 [node name="ChaseCamParent" type="Node3D" parent="."]
 
 [node name="ChaseCam" type="Camera3D" parent="ChaseCamParent"]
-transform = Transform3D(1, 0, 0, 0, 0.984808, 0.173648, 0, -0.173648, 0.984808, 0, 0.7, 2.3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 1.8)
 
 [node name="EngineSound" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("3_eu8ed")
 volume_db = -10.0
+doppler_tracking = 2
 
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("4_4pere")

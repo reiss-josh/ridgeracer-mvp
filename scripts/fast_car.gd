@@ -20,9 +20,11 @@ var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
 @export var max_slip_angle : float = 60.0 # the maximum drift angle, in euler degrees
 @export var turn_angle_speed : float = 180.0 # the angle change/frame, in euler degrees, of our target angle
 @export var turn_center_speed : float = 180.0 # the angle change/frame, in euler degrees, of steeering centering
+var turn_amount : float = 0.0 # for how much our transform actually rotated this frame
 var is_slipping : bool = false # whether we're slipping
 # Engine variables
 var curr_rpm : float = 0.0 #current RPM
+var curr_rpm_smoothed : float = 0.0 # smoothed RPM -- used for display, sounds
 @export var max_rpm : float = 10.0 #max RPM (in thousands)
 var curr_gear : int = 0
 var gear_change : int = 0
@@ -71,7 +73,7 @@ func _physics_process(delta) -> void:
 	#TODO: handle collisions, landing
 	move_and_slide() #do actual movement
 	#handles the HUD stuff
-	$HUD.update_values(curr_speed, curr_rpm, curr_turn_angle, curr_gear)
+	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
 	handle_sound()
 	#orthonormalize
 	global_transform = global_transform.orthonormalized()
@@ -137,7 +139,13 @@ func handle_engine(delta) -> void:
 	else:
 		curr_speed = curr_rpm * gear_top_speeds[curr_gear]
 	speed_change = curr_speed - last_frame_speed
-
+	#step 4: update cur_rpm_smoothed
+	if(curr_rpm > curr_rpm_smoothed):
+		curr_rpm_smoothed += accel_rate * delta
+		curr_rpm_smoothed = clampf(curr_rpm_smoothed, 0, curr_rpm)
+	elif(curr_rpm < curr_rpm_smoothed):
+		curr_rpm_smoothed -= deaccel_rate * delta
+		curr_rpm_smoothed = clampf(curr_rpm_smoothed, curr_rpm, 1.0)
 
 ## Handles forward movement of the car // TODO
 func handle_accel(_delta) -> void:
@@ -165,29 +173,48 @@ func handle_turning(delta) -> void:
 	curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle)
 	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
 	#rotate the car // TODO: fix this
-	if(curr_speed > 0):
-		self.rotation.y += accel_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
+	if(curr_speed != 0 and is_on_floor() == true):
+		turn_amount = accel_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
+		if(curr_speed < 0): turn_amount *= -1
+		self.rotation.y += turn_amount
 
 
 ## Handle camera effects // TODO
 var body_roll_lim : float = 10.0
 var body_tilt_lim : float = 15.0
+var body_fov_range : Vector2 = Vector2(75.0, 100.0)
+var chase_fov_range : Vector2 = Vector2(75.0, 100.0)
 func handle_camera(delta):
 	var curr_cam = cameras[curr_camera]
+	var speed_ratio = curr_speed / gear_top_speeds[gear_top_speeds.size()-1]
 	if(curr_cam.name == "HoodCam" or curr_cam.name == "BumperCam"):
-		#curr_cam.rotation.z = lerpf(curr_cam.rotation.z, turn_input * deg_to_rad(5), delta)
+		#turn tilt
 		var new_z := 0.0
-		if(curr_speed > 0):
-			new_z = lerpf(0, deg_to_rad(body_roll_lim), turn_input)
+		if(curr_speed > 0): new_z = lerpf(0, deg_to_rad(body_roll_lim), turn_input)
+		curr_cam.rotation.z = lerpf(curr_cam.rotation.z, new_z, delta)
+		#speed tilt
 		var new_x := lerpf(0, deg_to_rad(body_tilt_lim), speed_change * 5)
 		new_x = clampf(new_x, -deg_to_rad(body_tilt_lim), deg_to_rad(body_tilt_lim))
-		curr_cam.rotation.z = lerpf(curr_cam.rotation.z, new_z, delta)
 		curr_cam.rotation.x = lerpf(curr_cam.rotation.x, new_x, delta)
+		#speed FOV
+		var new_fov = lerpf(body_fov_range.x, body_fov_range.y, speed_ratio)
+		new_fov = clampf(new_fov, body_fov_range.x, body_fov_range.y)
+		curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
+	elif(curr_cam.name == "ChaseCam"):
+		#speed FOV
+		var new_fov = lerpf(chase_fov_range.x, chase_fov_range.y, speed_ratio)
+		new_fov = clampf(new_fov, chase_fov_range.x, chase_fov_range.y)
+		curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
+		#align with y -- TODO: should this interpolate?
+		var xform = align_with_y(curr_cam.global_transform, Vector3.UP)
+		curr_cam.global_transform = xform
+		var chase_parent = curr_cam.get_parent() # TODO: this is bad
+		chase_parent.rotation.y = lerpf(chase_parent.rotation.y, -turn_amount * 10, delta * 5)
 
 
 ## Handles playing engine sounds
 func handle_sound():
-	$EngineSound.pitch_scale = lerpf(engine_min_pitch, engine_max_pitch, accel)
+	$EngineSound.pitch_scale = lerpf(engine_min_pitch, engine_max_pitch, curr_rpm_smoothed)
 
 
 ## Aligns the car with the ground beneath it

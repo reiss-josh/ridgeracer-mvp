@@ -28,6 +28,9 @@ func update_values(speed : float = 0.0, rpm : float = 0.0, angle : float = 0.0, 
 	RPMText.text = str(snapped(rpm,0.1)) + " RPM"
 	TurnBar.value = angle
 	TurnText.text = str(snapped(angle, 0.1))
-	GearText.text = str(gear)
+	if(gear == 0):
+		GearText.text = "N"
+	else:
+		GearText.text = str(gear)
 	#QueuedTurnBar.value = qangle
 	#QueuedTurnText.text = str(snapped(qangle, 0.1))
