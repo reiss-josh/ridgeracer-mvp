@@ -201,6 +201,14 @@ size = Vector3(10.3, 4.8, 4.8)
 [node name="FastCar" type="CharacterBody3D" parent="." node_paths=PackedStringArray("ground_rays", "cameras")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 87.6972, 13.1037, -7.90121)
 script = ExtResource("3_oi3di")
+friction = null
+gravity = null
+fall_tilt_speed = null
+ground_snap_speed = null
+gear_top_speeds = null
+accel_rate = null
+deaccel_rate = null
+brake_rate = null
 accel_curve = SubResource("Curve_1ainy")
 ground_rays = [NodePath("GroundRays/Ray-FL"), NodePath("GroundRays/Ray-FR"), NodePath("GroundRays/Ray-BL"), NodePath("GroundRays/Ray-BR")]
 cameras = [NodePath("CarModel/Camera3D"), NodePath("Node3D/Camera3D")]
