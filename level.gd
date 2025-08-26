@@ -26,8 +26,7 @@ func _process(_delta):
 	var speed = car.curr_speed
 	var rpm = car.curr_rpm * car.max_rpm
 	var gear = car.curr_gear
-	#var angle = -car.curr_turn_angle
-	var angle = 0
+	var angle = -car.curr_turn_angle
 	#var qangle = -car.queued_turn_angle
 	Speedometer.value = speed
 	Tachiometer.value = rpm

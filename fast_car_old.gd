@@ -57,7 +57,127 @@ func get_input(delta):
 	#front_right_wheel.rotate_y(curr_turn_angle)
 	velocity = velocity.limit_length(maxspeed)
 	velocity.y = vy
-	
+
+
+var accel_input = 0.0
+var acceleration = 0.0
+var curr_rpm = 0.0
+var max_rpm = 0.0
+var brake_force = 0.0
+var friction = 2.0
+## Handles acceleration/deceleration/braking
+func handle_accel(delta) -> void:
+	var vy = velocity.y
+	# Apply friction
+		#decrease velocity by friction amount
+# Increase / decrease RPM based on whether we're holding the gas/brake
+	if(accel_input > 0):
+		curr_rpm += acceleration * delta #If accel, increase RPM by accel
+	elif(accel_input == 0):
+		curr_rpm -= deaccel * delta #If not accel, decrease RPM by deaccel
+	elif(accel_input < 0):
+		curr_rpm -= deaccel * delta #If not accel, decrease RPM by deaccel
+		curr_rpm -= brake_force * delta #If holding brake, apply brake_force
+	curr_rpm = clampf(curr_rpm, 0, max_rpm) #clamp to (0, max speed)
+# Increase our velocity in the direction of current turn angle, in accordance with current RPM
+	#increase velocity by speed
+	#velocity = lerp (velocity, velocity + (-transform.basis.z*curr_rpm), delta)
+	#arc velocity towards facing
+	#velocity = lerp(velocity, velocity * deg_to_rad(curr_turn_angle), delta)
+	#velocity.limit_length(max_rpm)
+	var wheel_basis = transform.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)).basis
+	var turn_ratio =  clampf(1 - (abs(curr_turn_angle)/max_slip_angle), 0.25, 1.0)
+	#var heading = -wheel_basis.z
+	var heading = -global_transform.basis.z
+	var rpm_ratio = curr_rpm/max_rpm
+	var impact = velocity.normalized().dot(heading.normalized())
+	if(impact == 0): impact = 1
+	#print(impact)
+	velocity += curr_rpm * heading * turn_ratio
+	var vel_cap = max_rpm
+	velocity = velocity.limit_length(vel_cap)
+	velocity = lerp(velocity, Vector3.ZERO, friction * delta)
+	#velocity = lerp(Vector3.ZERO, max_rpm * heading, rpm_ratio * turn_ratio)
+	velocity.y = vy
+
+
+# Turning variables
+var just_started_accel : bool = false
+var turn_input = 0.0
+#var curr_turn_angle : float = 0.0 # the current turning angle
+var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
+#var max_turn_angle : float = 45.0 # the maximum turn angle, in degrees
+var max_slip_angle : float = 60.0 # the maximum angle, in degrees, of a slip
+var turn_angle_speed : float = 45.0 # the angle change per frame, in degrees, of our target angle
+var turn_center_speed : float = 50.0
+var turn_snap_speed : float = 1.0 # the angle change per frame, in degrees, of the actual car
+var is_slipping : bool = false # whether we're slipping
+var max_angle_timer : float = 0.0 # How long we've been at the max turn angle
+var max_angle_timer_top : float = 1.0 # How many seconds at max angle before we slip
+## Handles turning
+func handle_turning(delta) -> void:
+	#print(curr_turn_angle)
+	DebugDraw3D.draw_arrow_ray(global_position + Vector3(0,0.5,0), velocity.normalized(), 0.5, Color.RED, 0.1)
+	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
+	#Check if we're currently slipping
+		# If our curr_turn_angle exceeds max_turn_angle, we should start slipping
+		# If we've been at max turn angle for a bit, and we're still holding a direction, we should slip
+	if (abs(curr_turn_angle) > max_turn_angle) or (max_angle_timer >= max_angle_timer_top): 
+		is_slipping = true
+	else:
+		is_slipping = false
+	if(is_slipping == false): #If not:
+		#Update our turn angle
+		if(accel_input <= 0): # If we aren't accelerating, we should increase queued_turn_angle based on our speed + input, and recenter
+			if(turn_input != 0):
+				queued_turn_angle += turn_input * (turn_angle_speed * 2) * delta
+				curr_turn_angle += turn_input * turn_angle_speed * delta
+				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
+			else:
+				var nsign = sign(curr_turn_angle)
+				var qsign = sign(queued_turn_angle)
+				queued_turn_angle -= sign(curr_turn_angle) * (turn_center_speed * 2) * delta
+				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
+				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
+				if(sign(queued_turn_angle) != qsign): queued_turn_angle = 0.0
+		elif(just_started_accel): # Otherwise, if we just started accelerating, we should snap curr_turn_angle to match
+			curr_turn_angle = queued_turn_angle
+			queued_turn_angle = 0
+		else: # Otherwise, we should increase our curr_turn_angle based on input
+			if(turn_input != 0):
+				curr_turn_angle += turn_input * turn_angle_speed * delta
+				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
+			else:
+				var nsign = sign(curr_turn_angle)
+				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
+				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
+			# TODO: Should turn a little -> a lot -> a little
+		queued_turn_angle = clampf(queued_turn_angle, -max_slip_angle, max_slip_angle) #clamp the max_turn_angle
+		if(abs(curr_turn_angle) >= max_turn_angle * 0.99): #If we're at/above 99% of max_turn_angle
+			max_angle_timer += 1.0 * delta #increase max_angle_timer by 1/sec
+		elif(max_angle_timer > 0.0): #Otherwise,
+			max_angle_timer -= 0.5 * delta #decrease max_angle_timer by 0.5/sec
+		max_angle_timer = clampf(max_angle_timer, 0, max_angle_timer_top) #clamp the turn angle timer
+	else: #If we are:
+		if(max_angle_timer > 0.0):
+			max_angle_timer -= 0.5 * delta #decrease max_angle_timer by 0.5/sec
+			max_angle_timer = clampf(max_angle_timer, 0, max_angle_timer_top) #clamp the turn angle timer
+		if(sign(curr_turn_angle) == sign(turn_input)): #If we're still holding in the slip direction, we should keep slipping
+			curr_turn_angle += turn_input * turn_angle_speed * delta
+			curr_turn_angle = clampf(curr_turn_angle, -max_slip_angle, max_slip_angle) #clamp the max_turn_angle
+		else: #Otherwise, we should interpolate back to regular turning angle
+			curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
+				#TODO: We should interpolate back much more quickly if we're countersteering
+				#TODO: We should interpolate back much more slowly if we're flooring it
+	# Finally, we should interpolate our actual angle towards our curr_turn_angle
+		#TODO: rotate car
+	#$CarModel.rotation.y = deg_to_rad(curr_turn_angle) + (TAU/2)
+	var vel_angle = atan2(velocity.x, velocity.z)
+	if(curr_rpm > 0):
+		pass
+		var inv_rpm_ratio = 1- (curr_rpm/max_rpm)
+	self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, 3 * delta)
+
 
 ## Takes [xform] and snaps its y axis to [new_y]
 func align_with_y(xform : Transform3D, new_y : Vector3) -> Transform3D:

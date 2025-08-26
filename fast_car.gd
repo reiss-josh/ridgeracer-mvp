@@ -15,7 +15,6 @@ var accel_input : float = 0.0
 var turn_input : float = 0.0
 var just_started_accel : bool = false
 var was_accel : bool = false
-
 # Turning variables
 var curr_turn_angle : float = 0.0 # the current turning angle
 var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
@@ -27,7 +26,6 @@ var turn_snap_speed : float = 1.0 # the angle change per frame, in degrees, of t
 var is_slipping : bool = false # whether we're slipping
 var max_angle_timer : float = 0.0 # How long we've been at the max turn angle
 var max_angle_timer_top : float = 1.0 # How many seconds at max angle before we slip
-
 # Engine variables
 var curr_rpm : float = 0.0 #current RPM
 var max_rpm : float = 10.0 #max RPM (in thousands)
@@ -39,12 +37,10 @@ var accel : float = 0.0 # current acceleration point along the accel_curve
 @export var brake_rate : float = 0.5 # % of accel_curve we traverse/second while braking
 @export var accel_curve : Curve
 var curr_speed : float = 0.0 # get this from our velocity
-
 # Array of Raycasts from wheels to ground
 @export var ground_rays : Array[RayCast3D]
 @export var cameras : Array[Camera3D]
 var curr_camera : int = 0
-
 # Wheel meshes
 @onready var wheel_fl : MeshInstance3D = $CarModel.find_child("Wheel-FL")
 @onready var wheel_fr : MeshInstance3D = $CarModel.find_child("Wheel-FR")
@@ -52,12 +48,13 @@ var curr_camera : int = 0
 @onready var wheel_br : MeshInstance3D = $CarModel.find_child("Wheel-BR")
 @onready var wheels : Array[MeshInstance3D] = [wheel_fl, wheel_fr, wheel_bl, wheel_br]
 
+
 func _physics_process(delta) -> void:
 	velocity.y -= gravity * delta
 	#get player input, handle gearing
 	get_input()
 	#handle turning
-	#handle_turning(delta)
+	handle_turning(delta)
 	#handle engine curve
 	handle_engine(delta)
 	#handles moving the car forward
@@ -91,71 +88,6 @@ func get_input():
 	if (accel_input > 0): was_accel = true
 	else: was_accel = false
 
-## Handles turning
-"""
-func handle_turning(delta) -> void:
-	#print(curr_turn_angle)
-	DebugDraw3D.draw_arrow_ray(global_position + Vector3(0,0.5,0), velocity.normalized(), 0.5, Color.RED, 0.1)
-	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
-	#Check if we're currently slipping
-		# If our curr_turn_angle exceeds max_turn_angle, we should start slipping
-		# If we've been at max turn angle for a bit, and we're still holding a direction, we should slip
-	if (abs(curr_turn_angle) > max_turn_angle) or (max_angle_timer >= max_angle_timer_top): 
-		is_slipping = true
-	else:
-		is_slipping = false
-	if(is_slipping == false): #If not:
-		#Update our turn angle
-		if(accel_input <= 0): # If we aren't accelerating, we should increase queued_turn_angle based on our speed + input, and recenter
-			if(turn_input != 0):
-				queued_turn_angle += turn_input * (turn_angle_speed * 2) * delta
-				curr_turn_angle += turn_input * turn_angle_speed * delta
-				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
-			else:
-				var nsign = sign(curr_turn_angle)
-				var qsign = sign(queued_turn_angle)
-				queued_turn_angle -= sign(curr_turn_angle) * (turn_center_speed * 2) * delta
-				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
-				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
-				if(sign(queued_turn_angle) != qsign): queued_turn_angle = 0.0
-		elif(just_started_accel): # Otherwise, if we just started accelerating, we should snap curr_turn_angle to match
-			curr_turn_angle = queued_turn_angle
-			queued_turn_angle = 0
-		else: # Otherwise, we should increase our curr_turn_angle based on input
-			if(turn_input != 0):
-				curr_turn_angle += turn_input * turn_angle_speed * delta
-				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
-			else:
-				var nsign = sign(curr_turn_angle)
-				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
-				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
-			# TODO: Should turn a little -> a lot -> a little
-		queued_turn_angle = clampf(queued_turn_angle, -max_slip_angle, max_slip_angle) #clamp the max_turn_angle
-		if(abs(curr_turn_angle) >= max_turn_angle * 0.99): #If we're at/above 99% of max_turn_angle
-			max_angle_timer += 1.0 * delta #increase max_angle_timer by 1/sec
-		elif(max_angle_timer > 0.0): #Otherwise,
-			max_angle_timer -= 0.5 * delta #decrease max_angle_timer by 0.5/sec
-		max_angle_timer = clampf(max_angle_timer, 0, max_angle_timer_top) #clamp the turn angle timer
-	else: #If we are:
-		if(max_angle_timer > 0.0):
-			max_angle_timer -= 0.5 * delta #decrease max_angle_timer by 0.5/sec
-			max_angle_timer = clampf(max_angle_timer, 0, max_angle_timer_top) #clamp the turn angle timer
-		if(sign(curr_turn_angle) == sign(turn_input)): #If we're still holding in the slip direction, we should keep slipping
-			curr_turn_angle += turn_input * turn_angle_speed * delta
-			curr_turn_angle = clampf(curr_turn_angle, -max_slip_angle, max_slip_angle) #clamp the max_turn_angle
-		else: #Otherwise, we should interpolate back to regular turning angle
-			curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
-				#TODO: We should interpolate back much more quickly if we're countersteering
-				#TODO: We should interpolate back much more slowly if we're flooring it
-	# Finally, we should interpolate our actual angle towards our curr_turn_angle
-		#TODO: rotate car
-	#$CarModel.rotation.y = deg_to_rad(curr_turn_angle) + (TAU/2)
-	var vel_angle = atan2(velocity.x, velocity.z)
-	if(curr_rpm > 0):
-		pass
-		var inv_rpm_ratio = 1- (curr_rpm/max_rpm)
-	self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, 3 * delta)
-"""
 
 ## Handles gearing
 func gear_change(gear_increment) -> void:
@@ -168,7 +100,7 @@ func gear_change(gear_increment) -> void:
 	if(gear_top_speeds[new_gear] != 0): #avoid div by 0
 		accel = accel * gear_top_speeds[curr_gear] / gear_top_speeds[new_gear]
 	else:
-		accel = accel * gear_top_speeds[curr_gear] / 0.01
+		accel = accel #TODO: this is probably bad
 	#updates gear
 	curr_gear = new_gear
 
@@ -178,8 +110,7 @@ func handle_engine(delta) -> void:
 	#step 0: offset acceleration by gear -- higher gears accelerate lesswwww
 	var max_gear = gear_top_speeds.size()-1
 	var gear_ratio : float = 1.0
-	if(curr_gear > 0):
-		gear_ratio = 1.0 - float(curr_gear-1)/float(max_gear) #TODO: make this less wonky
+	if(curr_gear > 0): gear_ratio = 1.0/float(curr_gear) #TODO: is this okay?
 	#step 1: update accel based on input
 	if(accel_input > 0):
 		accel += accel_rate * accel_input * gear_ratio * delta
@@ -195,53 +126,36 @@ func handle_engine(delta) -> void:
 	if(curr_speed > target_speed):
 		#var old_target_speed = gear_top_speeds[curr_gear+1]
 		#print(curr_speed, "\t", target_speed, "\t", old_target_speed)
-		curr_speed = lerpf(curr_speed, 0, 10 * delta) #TODO: not sure about this
+		curr_speed = lerpf(curr_speed, 0, deaccel_rate * delta) #TODO: not sure about this
 	else:
 		curr_speed = curr_rpm * gear_top_speeds[curr_gear]
 
 
+## Handles forward movement of the car
 func handle_accel(delta) -> void:
 	var vy = velocity.y
 	velocity = -transform.basis.z * curr_speed / 4
 	velocity.y = vy
 
 
-"""
-## Handles acceleration/deceleration/braking
-func handle_accel(delta) -> void:
-	var vy = velocity.y
-	# Apply friction
-		#decrease velocity by friction amount
-# Increase / decrease RPM based on whether we're holding the gas/brake
-	if(accel_input > 0):
-		curr_rpm += acceleration * delta #If accel, increase RPM by accel
-	elif(accel_input == 0):
-		curr_rpm -= deaccel * delta #If not accel, decrease RPM by deaccel
-	elif(accel_input < 0):
-		curr_rpm -= deaccel * delta #If not accel, decrease RPM by deaccel
-		curr_rpm -= brake_force * delta #If holding brake, apply brake_force
-	curr_rpm = clampf(curr_rpm, 0, max_rpm) #clamp to (0, max speed)
-# Increase our velocity in the direction of current turn angle, in accordance with current RPM
-	#increase velocity by speed
-	#velocity = lerp (velocity, velocity + (-transform.basis.z*curr_rpm), delta)
-	#arc velocity towards facing
-	#velocity = lerp(velocity, velocity * deg_to_rad(curr_turn_angle), delta)
-	#velocity.limit_length(max_rpm)
-	var wheel_basis = transform.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)).basis
-	var turn_ratio =  clampf(1 - (abs(curr_turn_angle)/max_slip_angle), 0.25, 1.0)
-	#var heading = -wheel_basis.z
-	var heading = -global_transform.basis.z
-	var rpm_ratio = curr_rpm/max_rpm
-	var impact = velocity.normalized().dot(heading.normalized())
-	if(impact == 0): impact = 1
-	#print(impact)
-	velocity += curr_rpm * heading * turn_ratio
-	var vel_cap = max_rpm
-	velocity = velocity.limit_length(vel_cap)
-	velocity = lerp(velocity, Vector3.ZERO, friction * delta)
-	#velocity = lerp(Vector3.ZERO, max_rpm * heading, rpm_ratio * turn_ratio)
-	velocity.y = vy
-"""
+## Handles turning
+func handle_turning(delta) -> void:
+	#add damping if holding gas
+	var accel_damping = 1.0
+	if(accel_input > 0): accel_damping = 0.75 #TODO: tune this
+	#add multiplier if changing directions
+	var change_dir_mult = 1.0
+	if sign(turn_input) != sign(curr_turn_angle): change_dir_mult = 1.5 #TODO: tune this. equal to center_speed?
+	#update turn angle based on input
+	if(abs(turn_input) > 0):
+		curr_turn_angle += turn_angle_speed * turn_input * accel_damping * change_dir_mult * delta
+	else:
+		curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * accel_damping * delta
+	curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle)
+	#rotate the car
+	#TODO: fix this
+	self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, 3 * delta)
+
 
 ## Aligns the car with the ground beneath it
 func align_with_floor(delta) -> void:
