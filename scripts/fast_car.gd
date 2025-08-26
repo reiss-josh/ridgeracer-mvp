@@ -49,6 +49,7 @@ var curr_camera : int = 0
 @onready var wheel_fr : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-FR")
 @onready var wheel_br : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-BR")
 @onready var wheel_bl : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-BL")
+@onready var car_body : MeshInstance3D = self.get_node("CarModelContainer/CarModel/CarBody")
 @onready var wheels : Array[MeshInstance3D] = [wheel_fl, wheel_fr, wheel_br, wheel_bl]
 
 
@@ -59,6 +60,10 @@ func _ready() -> void:
 	$EngineSound.pitch_scale = engine_min_pitch
 	$EngineSound.autoplay = true
 	$EngineSound.playing = true
+	# reparent body cameras to car_body
+	for camera in cameras:
+		if(camera.name == "BumperCam" or camera.name == "HoodCam"):
+			camera.reparent(car_body)
 
 
 func _physics_process(delta) -> void:
@@ -69,12 +74,13 @@ func _physics_process(delta) -> void:
 	handle_engine(delta)
 	handle_accel(delta)
 	align_with_floor(delta) #TODO -- when should we do this?
-	handle_camera(delta)
 	#TODO: handle collisions, landing
 	move_and_slide() #do actual movement
-	#handles the HUD stuff
-	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
+	#TODO: handle collisions, landing
+	handle_camera(delta)
+	animate_car(delta)
 	handle_sound()
+	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
 	#orthonormalize
 	global_transform = global_transform.orthonormalized()
 
@@ -147,10 +153,11 @@ func handle_engine(delta) -> void:
 		curr_rpm_smoothed -= deaccel_rate * delta
 		curr_rpm_smoothed = clampf(curr_rpm_smoothed, curr_rpm, 1.0)
 
+
 ## Handles forward movement of the car // TODO
 func handle_accel(_delta) -> void:
 	var vy = velocity.y
-	velocity = -transform.basis.z * curr_speed / 4 ##NO!!!
+	velocity = -transform.basis.z * curr_speed / 4 # TODO: NO!!!
 	velocity.y = vy
 
 
@@ -177,39 +184,52 @@ func handle_turning(delta) -> void:
 		turn_amount = accel_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
 		if(curr_speed < 0): turn_amount *= -1
 		self.rotation.y += turn_amount
+	else:
+		turn_amount = 0.0
 
 
 ## Handle camera effects // TODO
-var body_roll_lim : float = 10.0
-var body_tilt_lim : float = 15.0
 var body_fov_range : Vector2 = Vector2(75.0, 100.0)
 var chase_fov_range : Vector2 = Vector2(75.0, 100.0)
+var body_extra_tilt_lim : float = 10.0
 func handle_camera(delta):
 	var curr_cam = cameras[curr_camera]
 	var speed_ratio = curr_speed / gear_top_speeds[gear_top_speeds.size()-1]
+	var curr_fov_range : Vector2 = Vector2(75.0, 75.0)
 	if(curr_cam.name == "HoodCam" or curr_cam.name == "BumperCam"):
-		#turn tilt
-		var new_z := 0.0
-		if(curr_speed > 0): new_z = lerpf(0, deg_to_rad(body_roll_lim), turn_input)
-		curr_cam.rotation.z = lerpf(curr_cam.rotation.z, new_z, delta)
-		#speed tilt
-		var new_x := lerpf(0, deg_to_rad(body_tilt_lim), speed_change * 5)
-		new_x = clampf(new_x, -deg_to_rad(body_tilt_lim), deg_to_rad(body_tilt_lim))
+		#speed tilt -- extra, for additional sauce!!
+		var new_x := lerpf(0, deg_to_rad(body_extra_tilt_lim), speed_change * 5)
+		new_x = clampf(new_x, -deg_to_rad(body_extra_tilt_lim), deg_to_rad(body_extra_tilt_lim))
 		curr_cam.rotation.x = lerpf(curr_cam.rotation.x, new_x, delta)
 		#speed FOV
-		var new_fov = lerpf(body_fov_range.x, body_fov_range.y, speed_ratio)
-		new_fov = clampf(new_fov, body_fov_range.x, body_fov_range.y)
-		curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
+		curr_fov_range = body_fov_range
 	elif(curr_cam.name == "ChaseCam"):
 		#speed FOV
-		var new_fov = lerpf(chase_fov_range.x, chase_fov_range.y, speed_ratio)
-		new_fov = clampf(new_fov, chase_fov_range.x, chase_fov_range.y)
-		curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
+		curr_fov_range = chase_fov_range
 		#align with y -- TODO: should this interpolate?
 		var xform = align_with_y(curr_cam.global_transform, Vector3.UP)
 		curr_cam.global_transform = xform
 		var chase_parent = curr_cam.get_parent() # TODO: this is bad
 		chase_parent.rotation.y = lerpf(chase_parent.rotation.y, -turn_amount * 10, delta * 5)
+	#speed FOV
+	var new_fov = lerpf(curr_fov_range.x, curr_fov_range.y, speed_ratio)
+	new_fov = clampf(new_fov, curr_fov_range.x, curr_fov_range.y)
+	curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
+
+
+## Animates the car
+var body_roll_lim : float = 10.0
+var body_tilt_lim : float = 5
+func animate_car(delta):
+	#turn tilt
+	var new_z := 0.0
+	if(curr_speed > 0 and is_on_floor()): new_z = lerpf(0, deg_to_rad(body_roll_lim), turn_input)
+	car_body.rotation.z = lerpf(car_body.rotation.z, new_z, delta)
+	#speed tilt
+	var new_x := 0.0 #maybe shouldn't have is_on_floor() but idk!!
+	if(is_on_floor()): new_x = lerpf(0, deg_to_rad(body_tilt_lim), speed_change * 5)
+	new_x = clampf(new_x, -deg_to_rad(body_tilt_lim), deg_to_rad(body_tilt_lim))
+	car_body.rotation.x = lerpf(car_body.rotation.x, new_x, delta)
 
 
 ## Handles playing engine sounds
@@ -247,7 +267,7 @@ func get_ground_normal() -> Vector3:
 	for ray_ind in ground_rays.size():
 		ground_rays[ray_ind].force_raycast_update()
 		ray_points[ray_ind] = ground_rays[ray_ind].get_collision_point()
-		DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
+		#DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
 	# ground rays are ordered FL, FR, BR, BL - we want tris FL-FR-BR and BR-BL-FL
 	var z = get_normal_for_plane(ray_points[0],ray_points[1],ray_points[2],ray_points[3])
 	DebugDraw3D.draw_arrow_ray(position, z, 0.5, Color(0,0,0,0), 0.01)

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://c2cittqyl1o33"
-path="res://.godot/imported/Car2_separatewheels.glb-0461cb0aa91c65036a9a65f4a172a7eb.scn"
+uid="uid://bsx66kdprfr33"
+path="res://.godot/imported/Car2_fixed.glb-0471e4c381dc1fe43b5886087e4714f1.scn"
 
 [deps]
 
-source_file="res://assets/Models/Car2_separatewheels.glb"
-dest_files=["res://.godot/imported/Car2_separatewheels.glb-0461cb0aa91c65036a9a65f4a172a7eb.scn"]
+source_file="res://assets/Models/Car2_fixed.glb"
+dest_files=["res://.godot/imported/Car2_fixed.glb-0471e4c381dc1fe43b5886087e4714f1.scn"]
 
 [params]
 

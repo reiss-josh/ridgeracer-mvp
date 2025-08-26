@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://brox7rwngtrtb"
-path.s3tc="res://.godot/imported/Car2_separatewheels_car2.png-69d5b6ea9e39b1d619dc42719cbb83e1.s3tc.ctex"
+uid="uid://ciorqrm4cbo6a"
+path.s3tc="res://.godot/imported/Car2_fixed_car2.png-e566c1e3d386aa72addd11e1898eb107.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -14,8 +14,8 @@ generator_parameters={
 
 [deps]
 
-source_file="res://assets/Models/Car2_separatewheels_car2.png"
-dest_files=["res://.godot/imported/Car2_separatewheels_car2.png-69d5b6ea9e39b1d619dc42719cbb83e1.s3tc.ctex"]
+source_file="res://assets/Models/Car2_fixed_car2.png"
+dest_files=["res://.godot/imported/Car2_fixed_car2.png-e566c1e3d386aa72addd11e1898eb107.s3tc.ctex"]
 
 [params]
 
