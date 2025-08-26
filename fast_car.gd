@@ -20,8 +20,8 @@ var was_accel : bool = false
 var curr_turn_angle : float = 0.0 # the current turning angle
 var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
 var max_turn_angle : float = 45.0 # the maximum turn angle, in degrees
-var max_slip_angle : float = 70.0 # the maximum angle, in degrees, of a slip
-var turn_angle_speed : float = 90.0 # the angle change per frame, in degrees, of our target angle
+var max_slip_angle : float = 60.0 # the maximum angle, in degrees, of a slip
+var turn_angle_speed : float = 45.0 # the angle change per frame, in degrees, of our target angle
 var turn_center_speed : float = 50.0
 var turn_snap_speed : float = 1.0 # the angle change per frame, in degrees, of the actual car
 var is_slipping : bool = false # whether we're slipping
@@ -29,15 +29,21 @@ var max_angle_timer : float = 0.0 # How long we've been at the max turn angle
 var max_angle_timer_top : float = 1.0 # How many seconds at max angle before we slip
 
 # Engine variables
-var max_rpm : float = 20.0 #TODO: one max_rpm per geark
-var acceleration : float = 5.0 #TODO: one accel per gear
-var deaccel : float = 7.0
-var curr_rpm : float = 0.0
-var brake_force : float = 10.0
+var curr_rpm : float = 0.0 #current RPM
+var max_rpm : float = 10.0 #max RPM (in thousands)
+var curr_gear : int = 0
+@export var gear_top_speeds : Array[float] = [0, 40, 80, 105, 120]
+var accel : float = 0.0 # current acceleration point along the accel_curve
+@export var accel_rate : float = 0.2 # % of accel_curve we traverse/second while accelerating
+@export var deaccel_rate : float = 0.3 # % of accel_curve we traverse/second while deccelerating
+@export var brake_rate : float = 0.5 # % of accel_curve we traverse/second while braking
+@export var accel_curve : Curve
 var curr_speed : float = 0.0 # get this from our velocity
 
 # Array of Raycasts from wheels to ground
 @export var ground_rays : Array[RayCast3D]
+@export var cameras : Array[Camera3D]
+var curr_camera : int = 0
 
 # Wheel meshes
 @onready var wheel_fl : MeshInstance3D = $CarModel.find_child("Wheel-FL")
@@ -48,11 +54,13 @@ var curr_speed : float = 0.0 # get this from our velocity
 
 func _physics_process(delta) -> void:
 	velocity.y -= gravity * delta
-	#get player input
+	#get player input, handle gearing
 	get_input()
 	#handle turning
-	handle_turning(delta)
-	#handle acceleration/deceleration/braking
+	#handle_turning(delta)
+	#handle engine curve
+	handle_engine(delta)
+	#handles moving the car forward
 	handle_accel(delta)
 	#do actual movement
 	#TODO: handle collisions, landing
@@ -65,19 +73,29 @@ func _physics_process(delta) -> void:
 
 ## Handles player input
 func get_input():
+	#accel/steering
 	accel_input = Input.get_axis("back", "forward")
 	turn_input = Input.get_axis("right", "left")
-	if(accel_input > 0 and was_accel == false):
-		just_started_accel = true
-	else:
-		just_started_accel = false
-	if(accel_input > 0): was_accel = true
+	#gearing
+	if(Input.is_action_just_pressed("gear_up")): gear_change(1)
+	elif(Input.is_action_just_pressed("gear_down")): gear_change(-1)
+	curr_gear = clampf(curr_gear, 0, gear_top_speeds.size())
+	#cycle camera
+	if(Input.is_action_just_pressed("cycle_camera")):
+		curr_camera += 1
+		if(curr_camera > (cameras.size()-1)): curr_camera = 0
+		cameras[curr_camera].make_current()
+	# check if we just gassed it
+	if (accel_input > 0 and was_accel == false): just_started_accel = true
+	else: just_started_accel = false
+	if (accel_input > 0): was_accel = true
 	else: was_accel = false
 
-
 ## Handles turning
+"""
 func handle_turning(delta) -> void:
 	#print(curr_turn_angle)
+	DebugDraw3D.draw_arrow_ray(global_position + Vector3(0,0.5,0), velocity.normalized(), 0.5, Color.RED, 0.1)
 	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
 	#Check if we're currently slipping
 		# If our curr_turn_angle exceeds max_turn_angle, we should start slipping
@@ -94,11 +112,11 @@ func handle_turning(delta) -> void:
 				curr_turn_angle += turn_input * turn_angle_speed * delta
 				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
 			else:
-				var sign = sign(curr_turn_angle)
+				var nsign = sign(curr_turn_angle)
 				var qsign = sign(queued_turn_angle)
 				queued_turn_angle -= sign(curr_turn_angle) * (turn_center_speed * 2) * delta
 				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
-				if(sign(curr_turn_angle) != sign): curr_turn_angle = 0.0
+				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
 				if(sign(queued_turn_angle) != qsign): queued_turn_angle = 0.0
 		elif(just_started_accel): # Otherwise, if we just started accelerating, we should snap curr_turn_angle to match
 			curr_turn_angle = queued_turn_angle
@@ -108,9 +126,9 @@ func handle_turning(delta) -> void:
 				curr_turn_angle += turn_input * turn_angle_speed * delta
 				curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle) #clamp the max_turn_angle
 			else:
-				var sign = sign(curr_turn_angle)
+				var nsign = sign(curr_turn_angle)
 				curr_turn_angle -= sign(curr_turn_angle) * turn_center_speed * delta
-				if(sign(curr_turn_angle) != sign): curr_turn_angle = 0.0
+				if(sign(curr_turn_angle) != nsign): curr_turn_angle = 0.0
 			# TODO: Should turn a little -> a lot -> a little
 		queued_turn_angle = clampf(queued_turn_angle, -max_slip_angle, max_slip_angle) #clamp the max_turn_angle
 		if(abs(curr_turn_angle) >= max_turn_angle * 0.99): #If we're at/above 99% of max_turn_angle
@@ -131,12 +149,56 @@ func handle_turning(delta) -> void:
 				#TODO: We should interpolate back much more slowly if we're flooring it
 	# Finally, we should interpolate our actual angle towards our curr_turn_angle
 		#TODO: rotate car
-	$CarModel.rotation.y = deg_to_rad(curr_turn_angle) + (TAU/2)
+	#$CarModel.rotation.y = deg_to_rad(curr_turn_angle) + (TAU/2)
+	var vel_angle = atan2(velocity.x, velocity.z)
 	if(curr_rpm > 0):
-		self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, turn_snap_speed * delta)
-	
+		pass
+		var inv_rpm_ratio = 1- (curr_rpm/max_rpm)
+	self.rotation.y = lerp_angle(self.rotation.y, deg_to_rad(curr_turn_angle) + self.rotation.y, 3 * delta)
+"""
+
+## Handles gearing
+func gear_change(gear_increment) -> void:
+	var new_gear = curr_gear + gear_increment
+	#early return for index OOB
+	if(new_gear < 0 or new_gear > gear_top_speeds.size() - 1): return
+	#sets accel proportional to new gear's accel curve
+	#ex: 0.5 accel at top speed 50 -> 0.25 at top speed 100
+	#ex: 0.25 accel at top speed 100 -> 0.5 at top speed 50wwwwwwwwwwwwwwwwww
+	accel = accel * gear_top_speeds[curr_gear] / gear_top_speeds[new_gear]
+	#updates gear
+	curr_gear = new_gear
 
 
+## Handles engine acceleration curves
+func handle_engine(delta) -> void:
+	#step 1: update accel based on input
+	if(accel_input > 0):
+		accel += accel_rate * accel_input * delta
+	elif(accel_input == 0):
+		accel -= deaccel_rate * delta
+	elif(accel_input < 0):
+		accel += brake_rate * accel_input * delta
+	accel = clampf(accel, 0, 1.0)
+	#step 2: sample accel curve to get curr_rpm
+	curr_rpm = accel_curve.sample_baked(accel)
+	#step 3: convert rpm to speed
+	var target_speed = gear_top_speeds[curr_gear]
+	if(curr_speed > target_speed):
+		var old_target_speed = gear_top_speeds[curr_gear+1]
+		#print(curr_speed, "\t", target_speed, "\t", old_target_speed)
+		curr_speed = lerpf(curr_speed, 0, deaccel_rate * delta) #TODO: not sure about this
+	else:
+		curr_speed = curr_rpm * gear_top_speeds[curr_gear]
+
+
+func handle_accel(delta) -> void:
+	var vy = velocity.y
+	velocity = -transform.basis.z * curr_speed / 4
+	velocity.y = vy
+
+
+"""
 ## Handles acceleration/deceleration/braking
 func handle_accel(delta) -> void:
 	var vy = velocity.y
@@ -152,9 +214,26 @@ func handle_accel(delta) -> void:
 		curr_rpm -= brake_force * delta #If holding brake, apply brake_force
 	curr_rpm = clampf(curr_rpm, 0, max_rpm) #clamp to (0, max speed)
 # Increase our velocity in the direction of current turn angle, in accordance with current RPM
-	velocity = -transform.basis.z * curr_rpm
+	#increase velocity by speed
+	#velocity = lerp (velocity, velocity + (-transform.basis.z*curr_rpm), delta)
+	#arc velocity towards facing
+	#velocity = lerp(velocity, velocity * deg_to_rad(curr_turn_angle), delta)
+	#velocity.limit_length(max_rpm)
+	var wheel_basis = transform.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)).basis
+	var turn_ratio =  clampf(1 - (abs(curr_turn_angle)/max_slip_angle), 0.25, 1.0)
+	#var heading = -wheel_basis.z
+	var heading = -global_transform.basis.z
+	var rpm_ratio = curr_rpm/max_rpm
+	var impact = velocity.normalized().dot(heading.normalized())
+	if(impact == 0): impact = 1
+	#print(impact)
+	velocity += curr_rpm * heading * turn_ratio
+	var vel_cap = max_rpm
+	velocity = velocity.limit_length(vel_cap)
+	velocity = lerp(velocity, Vector3.ZERO, friction * delta)
+	#velocity = lerp(Vector3.ZERO, max_rpm * heading, rpm_ratio * turn_ratio)
 	velocity.y = vy
-
+"""
 
 ## Aligns the car with the ground beneath it
 func align_with_floor(delta) -> void:
@@ -162,11 +241,11 @@ func align_with_floor(delta) -> void:
 	if(Input.is_action_just_pressed("q")):
 		print(is_on_floor(), floor_normal, floor_normal.length())
 	#if we're on the floor, and we have a valid floor normal, interpolate to it
-	if(is_on_floor() and floor_normal.length() > 0.0):
+	if(is_on_floor() and floor_normal.length() > 0.0 and (Vector3.UP.dot(floor_normal) > 0)):
 		var xform = align_with_y(global_transform, floor_normal)
 		global_transform = global_transform.interpolate_with(xform, ground_snap_speed * delta)
 	#if we're in the air, align with up
-	elif(is_on_floor() == false):
+	else:
 		var xform = align_with_y(global_transform, Vector3.UP)
 		global_transform = global_transform.interpolate_with(xform, fall_tilt_speed * delta)
 
@@ -185,14 +264,15 @@ func get_floorplane_normal() -> Vector3:
 	# update and debug our ground rays
 	for ray_ind in ground_rays.size():
 		ground_rays[ray_ind].force_raycast_update()
-		ray_points[0] = ground_rays[ray_ind].get_collision_point()
-		DebugDraw3D.draw_sphere(ray_points[0], 0.1)
+		ray_points[ray_ind] = ground_rays[ray_ind].get_collision_point()
+		DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
 	# ground rays are ordered FL, FR, BL, BR
+	#we want triangle FL-FR-BL and FR-BR-BL
 	var surf_1_normal = get_normal_from_points(ray_points[0],ray_points[1],ray_points[2])
-	var surf_2_normal = get_normal_from_points(ray_points[1],ray_points[2],ray_points[3])
+	var surf_2_normal = get_normal_from_points(ray_points[1],ray_points[3],ray_points[2])
 	# average the two normals
 	var z = -(surf_1_normal + surf_2_normal)/2.0
-	DebugDraw3D.draw_arrow_ray(position, z, 1, Color(0,0,0,0), 0.01)
+	DebugDraw3D.draw_arrow_ray(position, z, 0.5, Color(0,0,0,0), 0.01)
 	return z
 
 
