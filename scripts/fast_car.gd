@@ -35,7 +35,7 @@ var accel : float = 0.0 # current acceleration point along the accel_curve
 @export var brake_rate : float = 0.5 # percentage of accel_curve we traverse/second while braking
 @export var accel_curve : Curve
 var curr_speed : float = 0.0
-var speed_change : float = 0.0 # change in curr_speed since last frame
+var delta_speed : float = 0.0 # change in curr_speed since last frame
 # Sound variables
 @export var engine_volume : float = -20.0
 @export var engine_min_pitch : float = 0.25
@@ -54,6 +54,7 @@ var curr_camera : int = 0
 
 
 func _ready() -> void:
+	curr_camera = 2
 	cameras[curr_camera].make_current()
 	$HUD.set_values(gear_top_speeds.back(), max_rpm, -max_turn_angle)
 	$EngineSound.volume_db = engine_volume
@@ -67,16 +68,12 @@ func _ready() -> void:
 
 
 func _physics_process(delta) -> void:
-	velocity.y -= gravity * delta #gravity
 	get_input()
 	handle_gearbox()
 	handle_turning(delta)
 	handle_engine(delta)
-	handle_accel(delta)
 	align_with_floor(delta) #TODO -- when should we do this?
-	#TODO: handle collisions, landing
-	move_and_slide() #do actual movement
-	#TODO: handle collisions, landing
+	handle_accel(delta)
 	handle_camera(delta)
 	animate_car(delta)
 	handle_sound()
@@ -98,6 +95,10 @@ func get_input():
 		curr_camera += 1
 		if(curr_camera > (cameras.size()-1)): curr_camera = 0
 		cameras[curr_camera].make_current()
+	#debug
+	if(Input.is_action_just_pressed("debug_ground")):
+		accel = 1.0
+		pass
 	# check if we just gassed it
 	if (accel_input > 0 and was_accel == false): just_started_accel = true
 	else: just_started_accel = false
@@ -144,7 +145,7 @@ func handle_engine(delta) -> void:
 		curr_speed = lerpf(curr_speed, 0, deaccel_rate * delta) #TODO: not sure about this
 	else:
 		curr_speed = curr_rpm * gear_top_speeds[curr_gear]
-	speed_change = curr_speed - last_frame_speed
+	delta_speed = curr_speed - last_frame_speed
 	#step 4: update cur_rpm_smoothed
 	if(curr_rpm > curr_rpm_smoothed):
 		curr_rpm_smoothed += accel_rate * delta
@@ -155,13 +156,95 @@ func handle_engine(delta) -> void:
 
 
 ## Handles forward movement of the car // TODO
-func handle_accel(_delta) -> void:
-	var vy = velocity.y
-	velocity = -transform.basis.z * curr_speed / 4 # TODO: NO!!!
+var last_engine_effect : Vector3 = Vector3.ZERO
+var delta_engine_effect : Vector3 = Vector3.ZERO
+var curr_engine_effect : Vector3 = Vector3.ZERO
+func handle_accel(delta) -> void:
+	#gravity
+	var gravity_effect = Vector3(0, gravity * delta, 0)
+	velocity = velocity - gravity_effect
+	#ngine
+	curr_engine_effect = -transform.basis.z * curr_speed / 4
+	delta_engine_effect = curr_engine_effect - last_engine_effect
+	var before_v = velocity
+	velocity += delta_engine_effect
+	#move
+	var vy = velocity.y - gravity_effect.y
+	velocity = curr_engine_effect #TODO: nooooooo
 	velocity.y = vy
+	move_and_slide()
+	#TODO: handle collisions
+	accel_collisions()
+	#determine engine effect
+	var after_v = velocity - gravity_effect #TODO: why do we have to remove gravity?
+	var actual_engine_effect = after_v - before_v
+	#TODO: handle landings
+	last_engine_effect = curr_engine_effect
 
 
-## Handles turning // TODO
+func handle_friction(delta) -> void:
+	var xsign = sign(velocity.x)
+	var zsign = sign(velocity.z)
+	velocity.x = velocity.x - friction * delta * sign(velocity.x)
+	velocity.x = clampf(velocity.x, 0, xsign)
+	velocity.z = velocity.z - friction * delta * sign(velocity.z)
+	velocity.z = clampf(velocity.z, 0, zsign)
+
+
+func accel_collisions() -> void:
+	var up_dir = transform.basis.y
+	var collisions := get_slide_collision_count()
+	var done_wall = false
+	var ref_angle : float = 0.0
+	var num_walls = 0
+	for index in collisions:
+		var collision = get_slide_collision(index)
+		var normal := collision.get_normal()
+		var angle := normal.angle_to(up_dir)
+		var coll_pos := collision.get_position()
+		var coll_loc_pos := to_local(collision.get_position())
+		if angle < floor_max_angle:
+			# it is a floor
+			pass
+		elif angle > (PI - floor_max_angle):
+			# it is a ceiling
+			pass
+		else:
+			# it is a wall
+			if(done_wall == false):
+				#accel = accel / 2
+				#curr_speed = curr_speed / 2
+				done_wall = true
+			velocity = velocity.bounce(normal)
+			var vec1 = -transform.basis.z
+			var vec2 = (-transform.basis.z).bounce(normal)
+			var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
+			ref_angle += c_ref_angle
+			num_walls += 1
+			pass
+	if(ref_angle != 0):
+		ref_angle = ref_angle / num_walls
+		if(ref_angle < TAU/5): # only ricochet when angle is < x degrees
+			collision_angle = ref_angle
+			is_colliding = true
+
+
+## Move and slide, then return the change in x/z velocity
+func move_and_slide_deltacheck():
+	var v0 = Vector3(velocity.x, 0, velocity.z)
+	move_and_slide() #do actual movement
+	var v1 = Vector3(velocity.x , 0, velocity.z)
+	if(v0 != v1):
+		print("v0: ", v0)
+		print("v1: ", v1)
+		print("delta: ", v1 - v0)
+		pass
+
+
+## Handles turning // TODO - tuning
+var is_colliding : bool = false # whether we're managing a collision
+@export var collision_turn_speed : float = 120.0 # angle change/frame, in eueler degrees, after collision
+var collision_angle = 0.0
 func handle_turning(delta) -> void:
 	#add damping if holding gas
 	var accel_damping = 1.0
@@ -179,16 +262,29 @@ func handle_turning(delta) -> void:
 		if sign(curr_turn_angle) != angle_sign: curr_turn_angle = 0.0
 	curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle)
 	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
-	#rotate the car // TODO: fix this
+	#rotate the car
+	#if(curr_speed != 0):
 	if(curr_speed != 0 and is_on_floor() == true):
 		turn_amount = accel_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
 		if(curr_speed < 0): turn_amount *= -1
-		self.rotation.y += turn_amount
+	elif(is_on_floor() != true):
+		var air_damping = 0.2
+		turn_amount = air_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
 	else:
 		turn_amount = 0.0
+		
+	#handle collisions
+	if(is_colliding):
+		var start_collision_angle = collision_angle
+		var coll_turn_amount = (delta * deg_to_rad(collision_turn_speed) * sign(start_collision_angle))
+		collision_angle = collision_angle - coll_turn_amount
+		if sign(collision_angle) != sign(start_collision_angle): collision_angle = 0.0
+		turn_amount += coll_turn_amount
+		if(collision_angle == 0): is_colliding = false
+	self.rotation.y += turn_amount
 
 
-## Handle camera effects // TODO
+## Handle camera effects // TODO - tuning
 var body_fov_range : Vector2 = Vector2(75.0, 100.0)
 var chase_fov_range : Vector2 = Vector2(75.0, 100.0)
 var body_extra_tilt_lim : float = 10.0
@@ -198,7 +294,7 @@ func handle_camera(delta):
 	var curr_fov_range : Vector2 = Vector2(75.0, 75.0)
 	if(curr_cam.name == "HoodCam" or curr_cam.name == "BumperCam"):
 		#speed tilt -- extra, for additional sauce!!
-		var new_x := lerpf(0, deg_to_rad(body_extra_tilt_lim), speed_change * 5)
+		var new_x := lerpf(0, deg_to_rad(body_extra_tilt_lim), delta_speed * 5)
 		new_x = clampf(new_x, -deg_to_rad(body_extra_tilt_lim), deg_to_rad(body_extra_tilt_lim))
 		curr_cam.rotation.x = lerpf(curr_cam.rotation.x, new_x, delta)
 		#speed FOV
@@ -217,7 +313,7 @@ func handle_camera(delta):
 	curr_cam.fov = lerpf(curr_cam.fov, new_fov, delta)
 
 
-## Animates the car
+## Animates the car // TODO - tuning
 var body_roll_lim : float = 10.0
 var body_tilt_lim : float = 5
 func animate_car(delta):
@@ -227,7 +323,7 @@ func animate_car(delta):
 	car_body.rotation.z = lerpf(car_body.rotation.z, new_z, delta)
 	#speed tilt
 	var new_x := 0.0 #maybe shouldn't have is_on_floor() but idk!!
-	if(is_on_floor()): new_x = lerpf(0, deg_to_rad(body_tilt_lim), speed_change * 5)
+	if(is_on_floor()): new_x = lerpf(0, deg_to_rad(body_tilt_lim), delta_speed * 5)
 	new_x = clampf(new_x, -deg_to_rad(body_tilt_lim), deg_to_rad(body_tilt_lim))
 	car_body.rotation.x = lerpf(car_body.rotation.x, new_x, delta)
 
