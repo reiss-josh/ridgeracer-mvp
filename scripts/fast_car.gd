@@ -76,7 +76,7 @@ func _physics_process(delta) -> void:
 	handle_accel(delta)
 	handle_camera(delta)
 	animate_car(delta)
-	handle_sound()
+	handle_engine_sound()
 	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
 	#orthonormalize
 	global_transform = global_transform.orthonormalized()
@@ -156,8 +156,7 @@ func handle_engine(delta) -> void:
 		curr_rpm_smoothed = clampf(curr_rpm_smoothed, curr_rpm, 1.0)
 
 
-## Handles forward movement of the car // TODO
-var stored_bounce : Vector3 = Vector3.ZERO
+## Handles car movement // TODO
 func handle_accel(delta) -> void:
 	#apply gravity
 	velocity.y -= gravity * delta
@@ -170,8 +169,7 @@ func handle_accel(delta) -> void:
 	move_and_slide()
 	#update stored velocity
 	stored_velocity.y = velocity.y
-	#stored_velocity = stored_velocity + accel_collisions()
-	accel_collisions()
+	move_and_slide_collisions()
 	#apply friction
 	velocity = friction_applied(stored_velocity, delta)
 
@@ -189,83 +187,69 @@ func friction_applied(vel : Vector3, delta) -> Vector3:
 
 
 ## Handle acceleration collisions for move_and_slide()
-func accel_collisions() -> void:
-	var up_dir = transform.basis.y
-	#var up_dir = up_direction
+func move_and_slide_collisions() -> void:
+	var up_dir := transform.basis.y #:= up_direction??
+	var fw_dir := -transform.basis.z
+	var ref_angle := 0.0
+	var num_walls := 0
+	var bounce_force := Vector3.ZERO
 	var collisions := get_slide_collision_count()
-	var ref_angle : float = 0.0
-	var num_walls = 0
-	var bounces : Vector3 = Vector3.ZERO
 	for index in collisions:
 		var collision = get_slide_collision(index)
 		var normal := collision.get_normal()
 		var angle := normal.angle_to(up_dir)
-		if angle < floor_max_angle:
-			# it is a floor
+		if angle < floor_max_angle: # it is a floor
 			pass
-		elif angle > (PI - floor_max_angle):
-			# it is a ceiling
+		elif angle > (PI - floor_max_angle): # it is a ceiling
 			pass
-		else:
-			# it is a wall
+		else: # it is a wall
 			# we want to:
-			# 1. determine whether the impact is at the side or the bumpers
-			var perp_normal = Vector3.UP.cross(normal)
-			perp_normal *= sign(perp_normal.dot(-transform.basis.z))
+			# 1. determine the angle of impact
+			# 1a. get the vector perpendicular to impact surface normal
+			var perp_normal = up_dir.cross(normal)
+			perp_normal *= sign(perp_normal.dot(fw_dir))
+			# 1b. debug display
 			if(true):
-				#print("sign: ",sign(rot_normal.dot(-transform.basis.z)))
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), perp_normal, 0.5, Color.ORANGE, 0.01)
-				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -transform.basis.z, 0.5, Color.BLUE, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), fw_dir, 0.5, Color.BLUE, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), normal, 0.5, Color.RED, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -normal, 0.5, Color.DARK_RED, 0.01)
-			# if the collision is on the sides, we should rotate AWAY from the normal
-			var vec1 = -transform.basis.z.normalized()
+			# 1c. angle calculation #TODO: something is going wrong
+			var vec1 = fw_dir.normalized()
 			var vec2 = perp_normal.normalized()
 			var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
-			#print("-----------")
-			#print("c_ref: ", rad_to_deg(c_ref_angle))
-			#print("v_len:" , velocity.length())
-			if(abs(rad_to_deg(c_ref_angle)) > 0.5):
+			# 1d. if the collision is on the sides, we should rotate AWAY from the normal
+			if(abs(rad_to_deg(c_ref_angle)) > 10.0):
 				ref_angle += c_ref_angle
-				# if the collision is on the bumpers, we should rotate TOWARDS the normal
-			# 2. determine the force of the collision
-				# if the collision is extreme, we should queue up a speed decrease + sound
-			#TODO
-			#bounces = velocity.bounce(normal)
-			#var alignment = abs(-normal.dot(-transform.basis.z))
+			# 1e. if the collision is on the bumpers, we should rotate TOWARDS the normal
+			else:
+				ref_angle -= c_ref_angle
+			# 2. determine the force of the collision #TODO
+			bounce_force += velocity.bounce(normal)
+			#var alignment = abs(-normal.dot(fw_dir))
 			#print(alignment)
 			#bounces += curr_speed / 8 * normal #*alignment #TODO: why 8?
 			num_walls += 1
+	# 3. handle the angle of impact
 	if(ref_angle != 0):
 		ref_angle = ref_angle / num_walls
-		#print("result: ", rad_to_deg(ref_angle))
+		print("ref_ang: ", rad_to_deg(ref_angle))
 		if(rad_to_deg(abs(ref_angle)) > 0.5):
 			collision_angle = ref_angle
 			is_colliding = true
 	else:
 		is_colliding = false
-	if(bounces != Vector3.ZERO):
-		bounces = bounces / num_walls
+	# 4. if the collision is extreme, we should queue up a speed decrease + sound
+	if(bounce_force != Vector3.ZERO): #crash sound
+		bounce_force = bounce_force / num_walls
 		var min_crash_vol = -2.0
 		var max_crash_vol = 2.0
 		var speed_ratio = curr_speed / gear_top_speeds[curr_gear]
 		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
 		#print(speed_ratio)
+		#print(bounce_force)
 		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
 		$CrashSound.volume_db = impact_volume
-		if(curr_speed > 3.0):
-			$CrashSound.play()
-
-## Move and slide, then return the change in x/z velocity
-func move_and_slide_deltacheck():
-	var v0 = Vector3(velocity.x, 0, velocity.z)
-	move_and_slide() #do actual movement
-	var v1 = Vector3(velocity.x , 0, velocity.z)
-	if(v0 != v1):
-		print("v0: ", v0)
-		print("v1: ", v1)
-		print("delta: ", v1 - v0)
-		pass
 
 
 ## Handles turning // TODO - tuning
@@ -309,7 +293,7 @@ func handle_turning(delta) -> void:
 		#turn_amount += coll_turn_amount
 		#if(collision_angle == 0): is_colliding = false
 		var coll_speed = 2.0
-		turn_amount += collision_angle * delta * coll_speed
+		#turn_amount += collision_angle * delta * coll_speed
 	self.rotation.y += turn_amount
 
 
@@ -358,7 +342,7 @@ func animate_car(delta):
 
 
 ## Handles playing engine sounds
-func handle_sound():
+func handle_engine_sound():
 	$EngineSound.pitch_scale = lerpf(engine_min_pitch, engine_max_pitch, curr_rpm_smoothed)
 
 
@@ -415,6 +399,8 @@ func get_normal_from_points(p1, p2, p3) -> Vector3:
 	return A.cross(B).normalized()
 
 
+
+# --- BELOW HERE LIES GARBO --- #
 ## Handle acceleration collisions for move_and_collide()
 func accel_bounce(delta) -> void:
 	var collisions = move_and_collide(velocity*delta, false, 0.001, false, 32)
@@ -432,3 +418,15 @@ func accel_bounce(delta) -> void:
 		else:
 			# it is a wall
 			pass
+
+
+## Move and slide, then return the change in x/z velocity
+func move_and_slide_deltacheck():
+	var v0 = Vector3(velocity.x, 0, velocity.z)
+	move_and_slide() #do actual movement
+	var v1 = Vector3(velocity.x , 0, velocity.z)
+	if(v0 != v1):
+		print("v0: ", v0)
+		print("v1: ", v1)
+		print("delta: ", v1 - v0)
+		pass
