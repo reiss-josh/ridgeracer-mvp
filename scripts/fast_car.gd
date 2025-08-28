@@ -190,11 +190,9 @@ func friction_applied(vel : Vector3, delta) -> Vector3:
 
 ## Handle acceleration collisions for move_and_slide()
 func accel_collisions() -> void:
-	var old_speed = curr_speed
 	var up_dir = transform.basis.y
 	#var up_dir = up_direction
 	var collisions := get_slide_collision_count()
-	var done_wall = false
 	var ref_angle : float = 0.0
 	var num_walls = 0
 	var bounces : Vector3 = Vector3.ZERO
@@ -210,31 +208,47 @@ func accel_collisions() -> void:
 			pass
 		else:
 			# it is a wall
-			#bounces = velocity.bounce(normal)
-			var alignment = abs(-normal.dot(-transform.basis.z))
-			#print(alignment)
-			bounces += curr_speed/8 * normal #*alignment #TODO: why 8?
-			if(done_wall == false):
-				accel = accel / 2
-				curr_speed = curr_speed / 2
-				done_wall = true
-			var vec1 = -transform.basis.z
-			var vec2 = (-transform.basis.z).bounce(normal)
+			# we want to:
+			# 1. determine whether the impact is at the side or the bumpers
+			var perp_normal = Vector3.UP.cross(normal)
+			perp_normal *= sign(perp_normal.dot(-transform.basis.z))
+			if(true):
+				#print("sign: ",sign(rot_normal.dot(-transform.basis.z)))
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), perp_normal, 0.5, Color.ORANGE, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -transform.basis.z, 0.5, Color.BLUE, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), normal, 0.5, Color.RED, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -normal, 0.5, Color.DARK_RED, 0.01)
+			# if the collision is on the sides, we should rotate AWAY from the normal
+			var vec1 = -transform.basis.z.normalized()
+			var vec2 = perp_normal.normalized()
 			var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
-			ref_angle += c_ref_angle
+			#print("-----------")
+			#print("c_ref: ", rad_to_deg(c_ref_angle))
+			#print("v_len:" , velocity.length())
+			if(abs(rad_to_deg(c_ref_angle)) > 0.5):
+				ref_angle += c_ref_angle
+				# if the collision is on the bumpers, we should rotate TOWARDS the normal
+			# 2. determine the force of the collision
+				# if the collision is extreme, we should queue up a speed decrease + sound
+			#TODO
+			#bounces = velocity.bounce(normal)
+			#var alignment = abs(-normal.dot(-transform.basis.z))
+			#print(alignment)
+			#bounces += curr_speed / 8 * normal #*alignment #TODO: why 8?
 			num_walls += 1
 	if(ref_angle != 0):
 		ref_angle = ref_angle / num_walls
-		print(rad_to_deg(ref_angle))
-		pass
-		if(abs(ref_angle) < 0): # only ricochet when angle is < x degrees
+		#print("result: ", rad_to_deg(ref_angle))
+		if(rad_to_deg(abs(ref_angle)) > 0.5):
 			collision_angle = ref_angle
 			is_colliding = true
+	else:
+		is_colliding = false
 	if(bounces != Vector3.ZERO):
 		bounces = bounces / num_walls
 		var min_crash_vol = -2.0
 		var max_crash_vol = 2.0
-		var speed_ratio = old_speed / gear_top_speeds[curr_gear]
+		var speed_ratio = curr_speed / gear_top_speeds[curr_gear]
 		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
 		#print(speed_ratio)
 		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
@@ -288,12 +302,14 @@ func handle_turning(delta) -> void:
 		
 	#handle collisions
 	if(is_colliding):
-		var start_collision_angle = collision_angle
-		var coll_turn_amount = (delta * deg_to_rad(collision_turn_speed) * sign(start_collision_angle))
-		collision_angle = collision_angle - coll_turn_amount
-		if sign(collision_angle) != sign(start_collision_angle): collision_angle = 0.0
-		turn_amount += coll_turn_amount
-		if(collision_angle == 0): is_colliding = false
+		#var start_collision_angle = collision_angle
+		#var coll_turn_amount = (delta * deg_to_rad(collision_turn_speed) * sign(start_collision_angle))
+		#collision_angle = collision_angle - coll_turn_amount
+		#if sign(collision_angle) != sign(start_collision_angle): collision_angle = 0.0
+		#turn_amount += coll_turn_amount
+		#if(collision_angle == 0): is_colliding = false
+		var coll_speed = 2.0
+		turn_amount += collision_angle * delta * coll_speed
 	self.rotation.y += turn_amount
 
 
