@@ -169,7 +169,7 @@ func handle_accel(delta) -> void:
 	move_and_slide()
 	#update stored velocity
 	stored_velocity.y = velocity.y
-	move_and_slide_collisions()
+	move_and_slide_collisions(delta)
 	#apply friction
 	velocity = friction_applied(stored_velocity, delta)
 
@@ -187,7 +187,7 @@ func friction_applied(vel : Vector3, delta) -> Vector3:
 
 
 ## Handle acceleration collisions for move_and_slide()
-func move_and_slide_collisions() -> void:
+func move_and_slide_collisions(delta) -> void:
 	var up_dir := transform.basis.y #:= up_direction??
 	var fw_dir := -transform.basis.z
 	var ref_angle := 0.0
@@ -215,15 +215,20 @@ func move_and_slide_collisions() -> void:
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), normal, 0.5, Color.RED, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -normal, 0.5, Color.DARK_RED, 0.01)
 			# 1c. angle calculation #TODO: something is going wrong
-			var vec1 = fw_dir.normalized()
-			var vec2 = perp_normal.normalized()
-			var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
+			var basis_facing_perp_normal = transform.basis.looking_at(perp_normal, up_dir)
+			basis_facing_perp_normal = basis_facing_perp_normal.orthonormalized()
+			var facing_transform = transform
+			facing_transform.basis = basis_facing_perp_normal
+			#var vec1 = fw_dir.normalized()
+			#var vec2 = perp_normal.normalized()
+			#var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
 			# 1d. if the collision is on the sides, we should rotate AWAY from the normal
-			if(abs(rad_to_deg(c_ref_angle)) > 10.0):
-				ref_angle += c_ref_angle
+			transform = transform.interpolate_with(facing_transform, delta)
+			#if(abs(rad_to_deg(c_ref_angle)) > 10.0):
+			#	ref_angle += c_ref_angle
 			# 1e. if the collision is on the bumpers, we should rotate TOWARDS the normal
-			else:
-				ref_angle -= c_ref_angle
+			#else:
+			#	ref_angle -= c_ref_angle
 			# 2. determine the force of the collision #TODO
 			bounce_force += velocity.bounce(normal)
 			#var alignment = abs(-normal.dot(fw_dir))
