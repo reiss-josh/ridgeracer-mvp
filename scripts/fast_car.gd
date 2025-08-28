@@ -3,7 +3,7 @@ class_name FastCar
 
 
 # Fake-physics forces
-@export var friction = 2.0
+@export var friction = 5.0
 @export var gravity = 5.0
 # y-alignment variables
 @export var fall_tilt_speed = 1.0
@@ -98,6 +98,7 @@ func get_input():
 	#debug
 	if(Input.is_action_just_pressed("debug_ground")):
 		accel = 1.0
+		#velocity += -transform.basis.z * gear_top_speeds[curr_gear] / 4
 		pass
 	# check if we just gassed it
 	if (accel_input > 0 and was_accel == false): just_started_accel = true
@@ -156,53 +157,50 @@ func handle_engine(delta) -> void:
 
 
 ## Handles forward movement of the car // TODO
-var last_engine_effect : Vector3 = Vector3.ZERO
-var delta_engine_effect : Vector3 = Vector3.ZERO
-var curr_engine_effect : Vector3 = Vector3.ZERO
+var stored_bounce : Vector3 = Vector3.ZERO
 func handle_accel(delta) -> void:
-	#gravity
-	var gravity_effect = Vector3(0, gravity * delta, 0)
-	velocity = velocity - gravity_effect
-	#ngine
-	curr_engine_effect = -transform.basis.z * curr_speed / 4
-	delta_engine_effect = curr_engine_effect - last_engine_effect
-	var before_v = velocity
-	velocity += delta_engine_effect
+	#apply gravity
+	velocity.y -= gravity * delta
+	var stored_velocity = velocity #storeour velocity
+	#engine
+	var curr_engine_effect = -transform.basis.z * curr_speed / 4
+	curr_engine_effect.y = 0
 	#move
-	var vy = velocity.y - gravity_effect.y
-	velocity = curr_engine_effect #TODO: nooooooo
-	velocity.y = vy
+	velocity = curr_engine_effect + stored_velocity
 	move_and_slide()
-	#TODO: handle collisions
-	accel_collisions()
-	#determine engine effect
-	var after_v = velocity - gravity_effect #TODO: why do we have to remove gravity?
-	var actual_engine_effect = after_v - before_v
-	#TODO: handle landings
-	last_engine_effect = curr_engine_effect
+	#update stored velocity
+	stored_velocity.y = velocity.y
+	stored_velocity = stored_velocity + accel_collisions()
+	#apply friction
+	velocity = friction_applied(stored_velocity, delta)
 
 
-func handle_friction(delta) -> void:
-	var xsign = sign(velocity.x)
-	var zsign = sign(velocity.z)
-	velocity.x = velocity.x - friction * delta * sign(velocity.x)
-	velocity.x = clampf(velocity.x, 0, xsign)
-	velocity.z = velocity.z - friction * delta * sign(velocity.z)
-	velocity.z = clampf(velocity.z, 0, zsign)
+## Takes vector [vel] and [delta] - returns vector with x and z decreased by (friction * delta)
+func friction_applied(vel : Vector3, delta) -> Vector3:
+	var d = delta * friction
+	var xs = sign(vel.x)
+	var zs = sign(vel.z)
+	vel.x -= d * xs
+	vel.z -= d * zs
+	if sign(vel.x) != sign(xs): vel.x = 0.0
+	if sign(vel.z) != sign(zs): vel.z = 0.0
+	return vel
 
 
-func accel_collisions() -> void:
+## Handle acceleration collisions for move_and_slide()
+func accel_collisions() -> Vector3:
+	var old_speed = curr_speed
 	var up_dir = transform.basis.y
+	#var up_dir = up_direction
 	var collisions := get_slide_collision_count()
 	var done_wall = false
 	var ref_angle : float = 0.0
 	var num_walls = 0
+	var bounces : Vector3 = Vector3.ZERO
 	for index in collisions:
 		var collision = get_slide_collision(index)
 		var normal := collision.get_normal()
 		var angle := normal.angle_to(up_dir)
-		var coll_pos := collision.get_position()
-		var coll_loc_pos := to_local(collision.get_position())
 		if angle < floor_max_angle:
 			# it is a floor
 			pass
@@ -211,23 +209,36 @@ func accel_collisions() -> void:
 			pass
 		else:
 			# it is a wall
+			#bounces = velocity.bounce(normal)
+			var alignment = abs(-normal.dot(-transform.basis.z))
+			print(alignment)
+			bounces += curr_speed/8 * normal #*alignment #TODO: why 8?
 			if(done_wall == false):
-				#accel = accel / 2
-				#curr_speed = curr_speed / 2
+				accel = accel / 2
+				curr_speed = curr_speed / 2
 				done_wall = true
-			velocity = velocity.bounce(normal)
 			var vec1 = -transform.basis.z
 			var vec2 = (-transform.basis.z).bounce(normal)
 			var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
 			ref_angle += c_ref_angle
 			num_walls += 1
-			pass
 	if(ref_angle != 0):
 		ref_angle = ref_angle / num_walls
-		if(ref_angle < TAU/5): # only ricochet when angle is < x degrees
+		if(abs(ref_angle) < 0): # only ricochet when angle is < x degrees
 			collision_angle = ref_angle
 			is_colliding = true
-
+	if(bounces != Vector3.ZERO):
+		bounces = bounces / num_walls
+		var min_crash_vol = -2.0
+		var max_crash_vol = 2.0
+		var speed_ratio = old_speed / gear_top_speeds[curr_gear]
+		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
+		print(speed_ratio)
+		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
+		$CrashSound.volume_db = impact_volume
+		if(curr_speed > 3.0):
+			$CrashSound.play()
+	return bounces
 
 ## Move and slide, then return the change in x/z velocity
 func move_and_slide_deltacheck():
@@ -299,7 +310,7 @@ func handle_camera(delta):
 		curr_cam.rotation.x = lerpf(curr_cam.rotation.x, new_x, delta)
 		#speed FOV
 		curr_fov_range = body_fov_range
-	elif(curr_cam.name == "ChaseCam"):
+	elif(curr_cam.name == "ChaseCam" or curr_cam.name == "SideCam"):
 		#speed FOV
 		curr_fov_range = chase_fov_range
 		#align with y -- TODO: should this interpolate?
@@ -384,3 +395,22 @@ func get_normal_from_points(p1, p2, p3) -> Vector3:
 	var A = p2 - p1
 	var B = p3 - p1
 	return A.cross(B).normalized()
+
+
+## Handle acceleration collisions for move_and_collide()
+func accel_bounce(delta) -> void:
+	var collisions = move_and_collide(velocity*delta, false, 0.001, false, 32)
+	if collisions == null: return
+	var up_dir = transform.basis.y
+	for index in collisions.get_collision_count():
+		var normal := collisions.get_normal(index)
+		var angle := normal.angle_to(up_dir)
+		if angle < floor_max_angle:
+			# it is a floor
+			pass
+		elif angle > (PI - floor_max_angle):
+			# it is a ceiling
+			pass
+		else:
+			# it is a wall
+			pass

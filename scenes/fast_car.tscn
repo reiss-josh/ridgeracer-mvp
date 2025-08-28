@@ -1,9 +1,10 @@
-[gd_scene load_steps=12 format=3 uid="uid://8wd0l1hflkhj"]
+[gd_scene load_steps=13 format=3 uid="uid://8wd0l1hflkhj"]
 
 [ext_resource type="Script" uid="uid://blsm3myal3yqu" path="res://scripts/fast_car.gd" id="1_b7var"]
 [ext_resource type="PackedScene" uid="uid://bsx66kdprfr33" path="res://assets/Models/Car2_fixed.glb" id="2_wc1vb"]
 [ext_resource type="AudioStream" uid="uid://ceakeowew1ph8" path="res://assets/Audio/engine-loop-1-normalized.wav" id="3_eu8ed"]
 [ext_resource type="Script" uid="uid://f2pqgath66f4" path="res://scripts/hud.gd" id="4_4pere"]
+[ext_resource type="AudioStream" uid="uid://duw228b045c13" path="res://assets/Audio/stunt-rally-sounds/sounds/crash/09.wav" id="4_o4stx"]
 
 [sub_resource type="Curve" id="Curve_jkobu"]
 _data = [Vector2(0, 0), 0.0, 1.4, 0, 0, Vector2(0.115894, 0.0645287), 0.0, 0.0, 0, 0, Vector2(0.750869, 0.772446), 0.0, 0.0, 0, 0, Vector2(1, 1), 0.0, 0.0, 0, 0]
@@ -33,7 +34,7 @@ ProgressBar/styles/fill = SubResource("StyleBoxFlat_n6hdu")
 script = ExtResource("1_b7var")
 accel_curve = SubResource("Curve_jkobu")
 ground_rays = [NodePath("GroundRays/Ray-FL"), NodePath("GroundRays/Ray-FR"), NodePath("GroundRays/Ray-BR"), NodePath("GroundRays/Ray-BL")]
-cameras = [NodePath("BumperCam"), NodePath("HoodCam"), NodePath("ChaseCamParent/ChaseCam")]
+cameras = [NodePath("BumperCam"), NodePath("HoodCam"), NodePath("ChaseCamParent/ChaseCam"), NodePath("TopCam"), NodePath("ChaseCamParent/SideCam")]
 
 [node name="Collision-FL" type="CollisionShape3D" parent="."]
 transform = Transform3D(-4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0, 1, -0.315, -0.1, -0.575)
@@ -60,6 +61,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -0.959)
 
 [node name="HoodCam" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2421, -0.54)
+
+[node name="TopCam" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 1.5, 0)
 
 [node name="CarModelContainer" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2499, 0)
@@ -96,10 +100,16 @@ enabled = false
 [node name="ChaseCam" type="Camera3D" parent="ChaseCamParent"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 1.8)
 
+[node name="SideCam" type="Camera3D" parent="ChaseCamParent"]
+transform = Transform3D(0.982599, -0.0265679, 0.183829, 0.028167, 0.999585, -0.00609304, -0.18359, 0.0111649, 0.982939, 0.799838, 0.375878, 1.24912)
+
 [node name="EngineSound" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("3_eu8ed")
 volume_db = -10.0
 doppler_tracking = 2
+
+[node name="CrashSound" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("4_o4stx")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("4_4pere")
