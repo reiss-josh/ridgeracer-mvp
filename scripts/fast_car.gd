@@ -170,7 +170,8 @@ func handle_accel(delta) -> void:
 	move_and_slide()
 	#update stored velocity
 	stored_velocity.y = velocity.y
-	stored_velocity = stored_velocity + accel_collisions()
+	#stored_velocity = stored_velocity + accel_collisions()
+	accel_collisions()
 	#apply friction
 	velocity = friction_applied(stored_velocity, delta)
 
@@ -188,7 +189,7 @@ func friction_applied(vel : Vector3, delta) -> Vector3:
 
 
 ## Handle acceleration collisions for move_and_slide()
-func accel_collisions() -> Vector3:
+func accel_collisions() -> void:
 	var old_speed = curr_speed
 	var up_dir = transform.basis.y
 	#var up_dir = up_direction
@@ -211,7 +212,7 @@ func accel_collisions() -> Vector3:
 			# it is a wall
 			#bounces = velocity.bounce(normal)
 			var alignment = abs(-normal.dot(-transform.basis.z))
-			print(alignment)
+			#print(alignment)
 			bounces += curr_speed/8 * normal #*alignment #TODO: why 8?
 			if(done_wall == false):
 				accel = accel / 2
@@ -224,6 +225,8 @@ func accel_collisions() -> Vector3:
 			num_walls += 1
 	if(ref_angle != 0):
 		ref_angle = ref_angle / num_walls
+		print(rad_to_deg(ref_angle))
+		pass
 		if(abs(ref_angle) < 0): # only ricochet when angle is < x degrees
 			collision_angle = ref_angle
 			is_colliding = true
@@ -233,12 +236,11 @@ func accel_collisions() -> Vector3:
 		var max_crash_vol = 2.0
 		var speed_ratio = old_speed / gear_top_speeds[curr_gear]
 		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
-		print(speed_ratio)
+		#print(speed_ratio)
 		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
 		$CrashSound.volume_db = impact_volume
 		if(curr_speed > 3.0):
 			$CrashSound.play()
-	return bounces
 
 ## Move and slide, then return the change in x/z velocity
 func move_and_slide_deltacheck():
