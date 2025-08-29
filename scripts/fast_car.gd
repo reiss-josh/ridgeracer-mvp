@@ -4,10 +4,10 @@ class_name FastCar
 
 # Fake-physics forces
 @export var friction = 5.0
-@export var gravity = 7.0
+@export var gravity = 9.8
 # y-alignment variables
 @export var fall_tilt_speed = 1.0
-@export var ground_snap_speed = 5.0
+@export var ground_snap_speed = 4.0
 # Input variables
 var accel_input : float = 0.0
 var turn_input : float = 0.0
@@ -17,7 +17,7 @@ var was_accel : bool = false # whether we were accelerating last frame
 var curr_turn_angle : float = 0.0 # the current turning angle
 var queued_turn_angle : float = 0.0 # the turn angle we-ll hit on acceleration
 @export var max_turn_angle : float = 45.0 # the maximum turn angle, in euler degrees
-@export var max_slip_angle : float = 60.0 # the maximum drift angle, in euler degrees
+@export var max_slip_angle : float = 90.0 # the maximum drift angle, in euler degrees
 @export var turn_angle_speed : float = 180.0 # the angle change/frame, in euler degrees, of our target angle
 @export var turn_center_speed : float = 180.0 # the angle change/frame, in euler degrees, of steeering centering
 var turn_amount : float = 0.0 # for how much our transform actually rotated this frame
@@ -45,9 +45,9 @@ var delta_speed : float = 0.0 # change in curr_speed since last frame
 @export var cameras : Array[Camera3D] #available cameras
 var curr_camera : int = 0
 # Wheel meshes
-@onready var wheel_fl : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-FL")
-@onready var wheel_fr : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-FR")
-@onready var wheel_br : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-BR")
+@onready var wheel_fl : MeshInstance3D = self.get_node("CarModelContainer/CarModel/Wheel-FL")
+@onready var wheel_fr : MeshInstance3D = self.get_node("CarModelContainer/CarModel/Wheel-FR")
+@onready var wheel_br : MeshInstance3D = $CarModelContainer.find_child("CarModel/Whweel-BR")
 @onready var wheel_bl : MeshInstance3D = $CarModelContainer.find_child("CarModel/Wheel-BL")
 @onready var car_body : MeshInstance3D = self.get_node("CarModelContainer/CarModel/CarBody")
 @onready var wheels : Array[MeshInstance3D] = [wheel_fl, wheel_fr, wheel_br, wheel_bl]
@@ -78,6 +78,9 @@ func _physics_process(delta) -> void:
 	animate_car(delta)
 	handle_engine_sound()
 	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
+	DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)), 0.5, Color.SKY_BLUE, 0.01)
+	DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z, 0.5, Color.TOMATO, 0.01)
+	
 	#orthonormalize
 	global_transform = global_transform.orthonormalized()
 
@@ -176,7 +179,6 @@ func handle_accel(delta) -> void:
 	stored_velocity.y = velocity.y
 	velocity = stored_velocity
 	move_and_slide_collisions(delta)
-	#handle_bounce(delta)
 	#apply friction
 	velocity = friction_applied(stored_velocity, delta)
 
@@ -197,12 +199,11 @@ func friction_applied(vel : Vector3, delta) -> Vector3:
 func move_and_slide_collisions(delta) -> void:
 	var up_dir := transform.basis.y #:= up_direction??
 	var fw_dir := -transform.basis.z
-	var ref_angle := 0.0
 	var num_walls := 0
 	var bounce_force := Vector3.ZERO
 	var collisions : int = get_slide_collision_count()
-	var m_speed_ratio = curr_speed / gear_top_speeds[gear_top_speeds.size()-1]
-	var c_speed_ratio = curr_speed / gear_top_speeds[curr_gear]
+	#var m_speed_ratio = curr_speed / gear_top_speeds[gear_top_speeds.size()-1]
+	#var c_speed_ratio = curr_speed / gear_top_speeds[curr_gear]
 	if (collisions == 0): return # early return if no collisions
 	for index in collisions:
 		var collision = get_slide_collision(index)
@@ -218,7 +219,7 @@ func move_and_slide_collisions(delta) -> void:
 			# 1a. get the vector perpendicular to impact surface normal
 			var perp_normal = up_dir.cross(normal)
 			perp_normal *= sign(perp_normal.dot(fw_dir))
-			# 1aa. store some other stuff
+			# 1x. store some other stuff
 			#var bounced_v = (velocity.bounce(normal))
 			var alignment = abs(-normal.dot(fw_dir))
 			var inv_alignment = 1 - alignment
@@ -232,23 +233,24 @@ func move_and_slide_collisions(delta) -> void:
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), bounced_off, 0.5, Color.YELLOW, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), velocity.normalized(), 0.5, Color.GREEN_YELLOW, 0.01)
 			# 1c. angle calculation #TODO: something is going wrong
-			var basis_facing_perp_normal = (transform.basis.looking_at(perp_normal, up_dir)).orthonormalized()
+			var basis_facing_perp_normal = (Basis.looking_at(perp_normal, up_dir)).orthonormalized()
 			var facing_transform = transform
 			facing_transform.basis = basis_facing_perp_normal
 			# 1d. rotate the transform towards our new facing
 			transform = transform.interpolate_with(facing_transform, delta * inv_alignment * curr_speed/8) #TODO: move this
-		# 2. determine the forcet of the collision
-			bounce_force += bounced_off * m_speed_ratio #TODO: tune this
+		# 2. determine the force of the collision
+			if(bounced_off.dot(normal)) > 0:
+				bounce_force += bounced_off
 			num_walls += 1
 	# 3. if the collision is extreme, we should queue up a speed decrease + sound
 	#TODO
 	if(bounce_force != Vector3.ZERO): #crash sound
 		bounce_force = bounce_force / num_walls
-		var min_crash_vol = -2.0
-		var max_crash_vol = 2.0
+		print(bounce_force)
+		var crash_vol_range = Vector2(-2.0, 2.0)
 		var speed_ratio = curr_speed / gear_top_speeds[curr_gear]
-		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
-		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
+		var impact_volume := lerpf(crash_vol_range.x, crash_vol_range.y, speed_ratio)
+		impact_volume = clampf(impact_volume, crash_vol_range.x, crash_vol_range.y)
 		$CrashSound.volume_db = impact_volume
 
 
@@ -268,20 +270,22 @@ func handle_turning(delta) -> void:
 		var angle_sign = sign(curr_turn_angle)
 		curr_turn_angle -= angle_sign * turn_center_speed * accel_damping * delta
 		if sign(curr_turn_angle) != angle_sign: curr_turn_angle = 0.0
-	curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle)
-	DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -transform.basis.z.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)), 0.5, Color.SKY_BLUE, 0.01)
+	var c_max_angle = max_turn_angle
+	var is_slip = 1.0
+	if(is_slipping):
+		c_max_angle = max_slip_angle
+		is_slip = 3.0
+	curr_turn_angle = clampf(curr_turn_angle, -c_max_angle, c_max_angle)
 	#rotate the car
 	#if(curr_speed != 0):
 	if(curr_speed != 0 and is_on_floor() == true):
-		turn_amount = accel_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
+		turn_amount = accel_damping * delta * abs(curr_turn_angle)/c_max_angle * sign(curr_turn_angle) * is_slip
 		if(curr_speed < 0): turn_amount *= -1
 	elif(is_on_floor() != true):
 		var air_damping = 0.2
-		turn_amount = air_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
+		turn_amount = air_damping * delta * abs(curr_turn_angle)/c_max_angle * sign(curr_turn_angle) * is_slip
 	else:
 		turn_amount = 0.0
-	if(is_slipping):
-		turn_amount *= 3
 	self.rotation.y += turn_amount
 
 
@@ -327,6 +331,8 @@ func animate_car(delta):
 	if(is_on_floor()): new_x = lerpf(0, deg_to_rad(body_tilt_lim), delta_speed * 5)
 	new_x = clampf(new_x, -deg_to_rad(body_tilt_lim), deg_to_rad(body_tilt_lim))
 	car_body.rotation.x = lerpf(car_body.rotation.x, new_x, delta)
+	wheel_fl.rotation.y = deg_to_rad(curr_turn_angle)
+	wheel_fr.rotation.y = deg_to_rad(curr_turn_angle)
 
 
 ## Handles playing engine sounds
@@ -387,27 +393,7 @@ func get_normal_from_points(p1, p2, p3) -> Vector3:
 	return A.cross(B).normalized()
 
 
-
 # --- BELOW HERE LIES GARBO --- #
-## Handle acceleration collisions for move_and_collide()
-func accel_bounce(delta) -> void:
-	var collisions = move_and_collide(velocity*delta, false, 0.001, false, 32)
-	if collisions == null: return
-	var up_dir = transform.basis.y
-	for index in collisions.get_collision_count():
-		var normal := collisions.get_normal(index)
-		var angle := normal.angle_to(up_dir)
-		if angle < floor_max_angle:
-			# it is a floor
-			pass
-		elif angle > (PI - floor_max_angle):
-			# it is a ceiling
-			pass
-		else:
-			# it is a wall
-			pass
-
-
 ## Move and slide, then return the change in x/z velocity
 func move_and_slide_deltacheck():
 	var v0 = Vector3(velocity.x, 0, velocity.z)
