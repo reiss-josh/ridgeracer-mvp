@@ -78,9 +78,8 @@ func _physics_process(delta) -> void:
 	animate_car(delta)
 	handle_engine_sound()
 	$HUD.update_values(curr_speed, curr_rpm_smoothed * max_rpm, curr_turn_angle, curr_gear)
-	DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)), 0.5, Color.SKY_BLUE, 0.01)
-	DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z, 0.5, Color.TOMATO, 0.01)
-	
+	#DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)), 0.5, Color.SKY_BLUE, 0.01)
+	#DebugDraw3D.draw_arrow_ray(position + transform.basis.y * .5, -transform.basis.z, 0.5, Color.TOMATO, 0.01)
 	#orthonormalize
 	global_transform = global_transform.orthonormalized()
 
@@ -225,7 +224,7 @@ func move_and_slide_collisions(delta) -> void:
 			var inv_alignment = 1 - alignment
 			var bounced_off = lerp(normal, perp_normal, alignment).normalized()
 			# 1b. debug display
-			if(true):
+			if(false):
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), perp_normal, 0.5, Color.ORANGE, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), fw_dir, 0.5, Color.BLUE, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), normal, 0.5, Color.RED, 0.01)
@@ -370,10 +369,10 @@ func get_ground_normal() -> Vector3:
 	for ray_ind in ground_rays.size():
 		ground_rays[ray_ind].force_raycast_update()
 		ray_points[ray_ind] = ground_rays[ray_ind].get_collision_point()
-		DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
+		#DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
 	# ground rays are ordered FL, FR, BR, BL - we want tris FL-FR-BR and BR-BL-FL
 	var z = get_normal_for_plane(ray_points[0],ray_points[1],ray_points[2],ray_points[3])
-	DebugDraw3D.draw_arrow_ray(position, z, 0.5, Color(0,0,0,0), 0.01)
+	#DebugDraw3D.draw_arrow_ray(position, z, 0.5, Color(0,0,0,0), 0.01)
 	return z
 
 
@@ -393,7 +392,6 @@ func get_normal_from_points(p1, p2, p3) -> Vector3:
 	return A.cross(B).normalized()
 
 
-# --- BELOW HERE LIES GARBO --- #
 ## Move and slide, then return the change in x/z velocity
 func move_and_slide_deltacheck():
 	var v0 = Vector3(velocity.x, 0, velocity.z)
