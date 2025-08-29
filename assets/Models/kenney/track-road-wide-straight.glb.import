@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dnxarec2hguu"
-path="res://.godot/imported/vehicle-racer-low.glb-8f5b5360ad29ce9be83d58d9050c2e52.scn"
+uid="uid://ctknclpfxkdnj"
+path="res://.godot/imported/track-road-wide-straight.glb-6b07ee59040dcbedfa763b62cfcb1e23.scn"
 
 [deps]
 
-source_file="res://assets/Models/vehicle-racer-low.glb"
-dest_files=["res://.godot/imported/vehicle-racer-low.glb-8f5b5360ad29ce9be83d58d9050c2e52.scn"]
+source_file="res://assets/Models/kenney/track-road-wide-straight.glb"
+dest_files=["res://.godot/imported/track-road-wide-straight.glb-6b07ee59040dcbedfa763b62cfcb1e23.scn"]
 
 [params]
 

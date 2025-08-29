@@ -4,7 +4,7 @@ class_name FastCar
 
 # Fake-physics forces
 @export var friction = 5.0
-@export var gravity = 5.0
+@export var gravity = 7.0
 # y-alignment variables
 @export var fall_tilt_speed = 1.0
 @export var ground_snap_speed = 5.0
@@ -25,7 +25,7 @@ var is_slipping : bool = false # whether we're slipping
 # Engine variables
 var curr_rpm : float = 0.0 #current RPM
 var curr_rpm_smoothed : float = 0.0 # smoothed RPM -- used for display, sounds
-@export var max_rpm : float = 10.0 #max RPM (in thousands)
+@export var max_rpm : float = 5.0 #max RPM (in thousands)
 var curr_gear : int = 0
 var gear_change : int = 0
 @export var gear_top_speeds : Array[float] = [0, 40, 80, 105, 120]
@@ -72,8 +72,8 @@ func _physics_process(delta) -> void:
 	handle_gearbox()
 	handle_turning(delta)
 	handle_engine(delta)
-	align_with_floor(delta) #TODO -- when should we do this?
 	handle_accel(delta)
+	align_with_floor(delta) #TODO -- when should we do this?
 	handle_camera(delta)
 	animate_car(delta)
 	handle_engine_sound()
@@ -90,6 +90,11 @@ func get_input():
 	#gearing
 	if(Input.is_action_just_pressed("gear_up")): gear_change = 1
 	elif(Input.is_action_just_pressed("gear_down")): gear_change = -1
+	
+	if(Input.is_action_pressed("handbrake")):
+		is_slipping = true
+	else:
+		is_slipping = false
 	#cycle camera
 	if(Input.is_action_just_pressed("cycle_camera")):
 		curr_camera += 1
@@ -160,7 +165,7 @@ func handle_engine(delta) -> void:
 func handle_accel(delta) -> void:
 	#apply gravity
 	velocity.y -= gravity * delta
-	var stored_velocity = velocity #storeour velocity
+	var stored_velocity = velocity #store our velocity
 	#engine
 	var curr_engine_effect = -transform.basis.z * curr_speed / 4
 	curr_engine_effect.y = 0
@@ -169,7 +174,9 @@ func handle_accel(delta) -> void:
 	move_and_slide()
 	#update stored velocity
 	stored_velocity.y = velocity.y
+	velocity = stored_velocity
 	move_and_slide_collisions(delta)
+	#handle_bounce(delta)
 	#apply friction
 	velocity = friction_applied(stored_velocity, delta)
 
@@ -193,7 +200,10 @@ func move_and_slide_collisions(delta) -> void:
 	var ref_angle := 0.0
 	var num_walls := 0
 	var bounce_force := Vector3.ZERO
-	var collisions := get_slide_collision_count()
+	var collisions : int = get_slide_collision_count()
+	var m_speed_ratio = curr_speed / gear_top_speeds[gear_top_speeds.size()-1]
+	var c_speed_ratio = curr_speed / gear_top_speeds[curr_gear]
+	if (collisions == 0): return # early return if no collisions
 	for index in collisions:
 		var collision = get_slide_collision(index)
 		var normal := collision.get_normal()
@@ -204,63 +214,45 @@ func move_and_slide_collisions(delta) -> void:
 			pass
 		else: # it is a wall
 			# we want to:
-			# 1. determine the angle of impact
+		# 1. determine the angle of impact
 			# 1a. get the vector perpendicular to impact surface normal
 			var perp_normal = up_dir.cross(normal)
 			perp_normal *= sign(perp_normal.dot(fw_dir))
+			# 1aa. store some other stuff
+			#var bounced_v = (velocity.bounce(normal))
+			var alignment = abs(-normal.dot(fw_dir))
+			var inv_alignment = 1 - alignment
+			var bounced_off = lerp(normal, perp_normal, alignment).normalized()
 			# 1b. debug display
 			if(true):
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), perp_normal, 0.5, Color.ORANGE, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), fw_dir, 0.5, Color.BLUE, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), normal, 0.5, Color.RED, 0.01)
 				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -normal, 0.5, Color.DARK_RED, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), bounced_off, 0.5, Color.YELLOW, 0.01)
+				DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), velocity.normalized(), 0.5, Color.GREEN_YELLOW, 0.01)
 			# 1c. angle calculation #TODO: something is going wrong
-			var basis_facing_perp_normal = transform.basis.looking_at(perp_normal, up_dir)
-			basis_facing_perp_normal = basis_facing_perp_normal.orthonormalized()
+			var basis_facing_perp_normal = (transform.basis.looking_at(perp_normal, up_dir)).orthonormalized()
 			var facing_transform = transform
 			facing_transform.basis = basis_facing_perp_normal
-			#var vec1 = fw_dir.normalized()
-			#var vec2 = perp_normal.normalized()
-			#var c_ref_angle = -(atan2(vec1.z, vec2.x) - atan2(vec2.z, vec1.x))
-			# 1d. if the collision is on the sides, we should rotate AWAY from the normal
-			transform = transform.interpolate_with(facing_transform, delta)
-			#if(abs(rad_to_deg(c_ref_angle)) > 10.0):
-			#	ref_angle += c_ref_angle
-			# 1e. if the collision is on the bumpers, we should rotate TOWARDS the normal
-			#else:
-			#	ref_angle -= c_ref_angle
-			# 2. determine the force of the collision #TODO
-			bounce_force += velocity.bounce(normal)
-			#var alignment = abs(-normal.dot(fw_dir))
-			#print(alignment)
-			#bounces += curr_speed / 8 * normal #*alignment #TODO: why 8?
+			# 1d. rotate the transform towards our new facing
+			transform = transform.interpolate_with(facing_transform, delta * inv_alignment * curr_speed/8) #TODO: move this
+		# 2. determine the forcet of the collision
+			bounce_force += bounced_off * m_speed_ratio #TODO: tune this
 			num_walls += 1
-	# 3. handle the angle of impact
-	if(ref_angle != 0):
-		ref_angle = ref_angle / num_walls
-		print("ref_ang: ", rad_to_deg(ref_angle))
-		if(rad_to_deg(abs(ref_angle)) > 0.5):
-			collision_angle = ref_angle
-			is_colliding = true
-	else:
-		is_colliding = false
-	# 4. if the collision is extreme, we should queue up a speed decrease + sound
+	# 3. if the collision is extreme, we should queue up a speed decrease + sound
+	#TODO
 	if(bounce_force != Vector3.ZERO): #crash sound
 		bounce_force = bounce_force / num_walls
 		var min_crash_vol = -2.0
 		var max_crash_vol = 2.0
 		var speed_ratio = curr_speed / gear_top_speeds[curr_gear]
 		var impact_volume := lerpf(min_crash_vol, max_crash_vol, speed_ratio)
-		#print(speed_ratio)
-		#print(bounce_force)
 		impact_volume = clampf(impact_volume, min_crash_vol, max_crash_vol)
 		$CrashSound.volume_db = impact_volume
 
 
 ## Handles turning // TODO - tuning
-var is_colliding : bool = false # whether we're managing a collision
-@export var collision_turn_speed : float = 120.0 # angle change/frame, in eueler degrees, after collision
-var collision_angle = 0.0
 func handle_turning(delta) -> void:
 	#add damping if holding gas
 	var accel_damping = 1.0
@@ -277,7 +269,7 @@ func handle_turning(delta) -> void:
 		curr_turn_angle -= angle_sign * turn_center_speed * accel_damping * delta
 		if sign(curr_turn_angle) != angle_sign: curr_turn_angle = 0.0
 	curr_turn_angle = clampf(curr_turn_angle, -max_turn_angle, max_turn_angle)
-	$TestRay.rotation.y = deg_to_rad(curr_turn_angle)
+	DebugDraw3D.draw_arrow_ray(position + Vector3(0,0.5,0), -transform.basis.z.rotated(transform.basis.y, deg_to_rad(curr_turn_angle)), 0.5, Color.SKY_BLUE, 0.01)
 	#rotate the car
 	#if(curr_speed != 0):
 	if(curr_speed != 0 and is_on_floor() == true):
@@ -288,17 +280,8 @@ func handle_turning(delta) -> void:
 		turn_amount = air_damping * delta * abs(curr_turn_angle)/max_turn_angle * sign(curr_turn_angle)
 	else:
 		turn_amount = 0.0
-		
-	#handle collisions
-	if(is_colliding):
-		#var start_collision_angle = collision_angle
-		#var coll_turn_amount = (delta * deg_to_rad(collision_turn_speed) * sign(start_collision_angle))
-		#collision_angle = collision_angle - coll_turn_amount
-		#if sign(collision_angle) != sign(start_collision_angle): collision_angle = 0.0
-		#turn_amount += coll_turn_amount
-		#if(collision_angle == 0): is_colliding = false
-		var coll_speed = 2.0
-		#turn_amount += collision_angle * delta * coll_speed
+	if(is_slipping):
+		turn_amount *= 3
 	self.rotation.y += turn_amount
 
 
@@ -381,7 +364,7 @@ func get_ground_normal() -> Vector3:
 	for ray_ind in ground_rays.size():
 		ground_rays[ray_ind].force_raycast_update()
 		ray_points[ray_ind] = ground_rays[ray_ind].get_collision_point()
-		#DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
+		DebugDraw3D.draw_sphere(ray_points[ray_ind], 0.1)
 	# ground rays are ordered FL, FR, BR, BL - we want tris FL-FR-BR and BR-BL-FL
 	var z = get_normal_for_plane(ray_points[0],ray_points[1],ray_points[2],ray_points[3])
 	DebugDraw3D.draw_arrow_ray(position, z, 0.5, Color(0,0,0,0), 0.01)
